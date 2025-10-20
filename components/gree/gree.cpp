@@ -88,7 +88,10 @@ climate::ClimateTraits GreeClimate::traits() {
       climate::CLIMATE_FAN_HIGH
   });
 
-  traits.set_supported_presets({ climate::CLIMATE_PRESET_NONE, climate::CLIMATE_PRESET_COMFORT });
+  traits.set_supported_presets({ 
+    climate::CLIMATE_PRESET_NONE, 
+    climate::CLIMATE_PRESET_COMFORT 
+  });
   traits.set_supports_current_temperature(true);
 
   return traits;
@@ -106,9 +109,18 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     return;
   }
 
+  // Обновляем состояния из пакета
   display_state_ = (data[10] & 0x02) ? DISPLAY_ON : DISPLAY_OFF;
   sound_state_ = (data[11] & 0x01) ? SOUND_OFF : SOUND_ON;
   turbo_state_ = (data[10] == 7 || data[10] == 15) ? TURBO_ON : TURBO_OFF;
+
+  // Обновляем переключатели
+  if (turbo_switch != nullptr) {
+    turbo_switch->publish_state(turbo_state_ == TURBO_ON);
+  }
+  if (sound_switch != nullptr) {
+    sound_switch->publish_state(sound_state_ == SOUND_ON);
+  }
 
   target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
   current_temperature = data[INDOOR_TEMPERATURE] - 40;
@@ -132,6 +144,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     case AC_FAN_HIGH: fan_mode = climate::CLIMATE_FAN_HIGH; break;
   }
 
+  // Дисплей через preset
   preset = display_state_ == DISPLAY_ON ? climate::CLIMATE_PRESET_COMFORT : climate::CLIMATE_PRESET_NONE;
 
   has_valid_state_ = true;
@@ -164,6 +177,16 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     }
   }
 
+  // Обработка preset для дисплея
+  if (call.get_preset().has_value()) {
+    auto preset_value = call.get_preset().value();
+    if (preset_value == climate::CLIMATE_PRESET_COMFORT) {
+      display_state_ = DISPLAY_ON;
+    } else {
+      display_state_ = DISPLAY_OFF;
+    }
+  }
+
   if (call.get_target_temperature().has_value()) {
     float temp = call.get_target_temperature().value();
     if (temp >= MIN_VALID_TEMPERATURE && temp <= MAX_VALID_TEMPERATURE) {
@@ -171,14 +194,36 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     }
   }
 
-  if (display_state_ == DISPLAY_ON) data_write_[10] |= 0x02;
-  else data_write_[10] &= ~0x02;
+  // Устанавливаем флаги в пакет
+  if (display_state_ == DISPLAY_ON) {
+    data_write_[10] |= 0x02;
+  } else {
+    data_write_[10] &= ~0x02;
+  }
+
+  if (sound_state_ == SOUND_OFF) {
+    data_write_[11] |= 0x01;
+  } else {
+    data_write_[11] &= ~0x01;
+  }
+
+  if (turbo_state_ == TURBO_ON) {
+    data_write_[10] = 7; // Турбо режим
+  }
 
   data_write_[MODE] = new_mode | new_fan_speed;
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
 
   data_write_[FORCE_UPDATE] = 0;
+  
+  // Обновляем состояние
+  publish_state();
+}
+
+void GreeClimate::set_display(bool state) {
+  display_state_ = state ? DISPLAY_ON : DISPLAY_OFF;
+  control(this->make_call());
 }
 
 void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
