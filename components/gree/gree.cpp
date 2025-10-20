@@ -79,19 +79,23 @@ climate::ClimateTraits GreeClimate::traits() {
     climate::CLIMATE_MODE_HEAT
   });
 
+  // Добавляем кастомные fan modes для дополнительных функций
   traits.set_supported_fan_modes({
       climate::CLIMATE_FAN_AUTO,
       climate::CLIMATE_FAN_LOW,
       climate::CLIMATE_FAN_MEDIUM,
       climate::CLIMATE_FAN_HIGH
   });
+  traits.add_supported_fan_mode("TURBO");  // Турбо режим как fan mode
 
   traits.set_supports_current_temperature(true);
 
-  // Добавляем поддержку кастомных флагов для переключателей
-  traits.add_supported_custom_fan_mode("TURBO");
-  traits.add_supported_custom_preset("SOUND");
-  traits.add_supported_custom_swing_mode("DISPLAY");
+  // Добавляем кастомные пресеты для звука и дисплея
+  traits.set_supported_presets({
+    climate::CLIMATE_PRESET_NONE,
+    climate::CLIMATE_PRESET_ECO,      // Используем для звука (ECO = звук выключен)
+    climate::CLIMATE_PRESET_COMFORT   // Используем для дисплея (COMFORT = дисплей включен)
+  });
 
   return traits;
 }
@@ -110,13 +114,13 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   }
 
   // Читаем состояние дисплея (бит 1 в байте 10)
-  display_light_state_ = (data[10] & 0x02) != 0;
+  display_state_ = (data[10] & 0x02) ? DISPLAY_ON : DISPLAY_OFF;
   
-  // Читаем состояние тихого режима (бит 0 в байте 11)
-  silent_mode_ = (data[11] & 0x01) != 0;
+  // Читаем состояние звука (бит 0 в байте 11)
+  sound_state_ = (data[11] & 0x01) ? SOUND_OFF : SOUND_ON;
   
   // Читаем состояние турбо режима (определяем по специальным кодам)
-  turbo_mode_ = (data[10] == 7 || data[10] == 15);
+  turbo_state_ = (data[10] == 7 || data[10] == 15) ? TURBO_ON : TURBO_OFF;
 
   // Обновляем температуру
   if (data[TEMPERATURE] >= 0 && data[TEMPERATURE] <= 224) { // 0-224 соответствует 16-30°C
@@ -169,23 +173,18 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
       break;
   }
 
-  // Устанавливаем кастомные флаги
-  if (turbo_mode_) {
-    this->custom_fan_mode = "TURBO";
-  } else {
-    this->custom_fan_mode = "";
+  // Устанавливаем кастомные режимы
+  if (turbo_state_ == TURBO_ON) {
+    this->fan_mode = "TURBO";  // Турбо режим как fan mode
   }
 
-  if (!silent_mode_) { // sound_mode = !silent_mode
-    this->preset = climate::CLIMATE_PRESET_ACTIVITY; // Используем для звука
+  // Устанавливаем пресеты для звука и дисплея
+  if (sound_state_ == SOUND_OFF) {
+    this->preset = climate::CLIMATE_PRESET_ECO;  // ECO = звук выключен
+  } else if (display_state_ == DISPLAY_ON) {
+    this->preset = climate::CLIMATE_PRESET_COMFORT;  // COMFORT = дисплей включен
   } else {
     this->preset = climate::CLIMATE_PRESET_NONE;
-  }
-
-  if (display_light_state_) {
-    this->swing_mode = climate::CLIMATE_SWING_VERTICAL; // Используем для дисплея
-  } else {
-    this->swing_mode = climate::CLIMATE_SWING_OFF;
   }
 
   has_valid_state_ = true;
@@ -227,54 +226,52 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     }
   }
 
-  // Обработка изменения скорости вентилятора
+  // Обработка изменения скорости вентилятора и турбо режима
   if (call.get_fan_mode().has_value()) {
-    climate::ClimateFanMode esp_fan_mode = call.get_fan_mode().value();
-    switch (esp_fan_mode) {
-      case climate::CLIMATE_FAN_AUTO: 
-        new_fan_speed = AC_FAN_AUTO; 
-        break;
-      case climate::CLIMATE_FAN_LOW: 
-        new_fan_speed = AC_FAN_LOW; 
-        break;
-      case climate::CLIMATE_FAN_MEDIUM: 
-        new_fan_speed = AC_FAN_MEDIUM; 
-        break;
-      case climate::CLIMATE_FAN_HIGH: 
-        new_fan_speed = AC_FAN_HIGH; 
-        break;
-      default: 
-        break;
-    }
-  }
-
-  // Обработка кастомного fan mode для турбо режима
-  if (call.get_custom_fan_mode().has_value()) {
-    auto custom_fan = call.get_custom_fan_mode().value();
-    if (custom_fan == "TURBO") {
-      turbo_mode_ = true;
+    auto fan_mode_value = call.get_fan_mode().value();
+    
+    if (fan_mode_value == "TURBO") {
+      // Включаем турбо режим
+      turbo_state_ = TURBO_ON;
+      new_fan_speed = AC_FAN_HIGH; // В турбо режиме обычно высокая скорость
     } else {
-      turbo_mode_ = false;
+      // Обычные режимы вентилятора
+      turbo_state_ = TURBO_OFF;
+      switch (fan_mode_value) {
+        case climate::CLIMATE_FAN_AUTO: 
+          new_fan_speed = AC_FAN_AUTO; 
+          break;
+        case climate::CLIMATE_FAN_LOW: 
+          new_fan_speed = AC_FAN_LOW; 
+          break;
+        case climate::CLIMATE_FAN_MEDIUM: 
+          new_fan_speed = AC_FAN_MEDIUM; 
+          break;
+        case climate::CLIMATE_FAN_HIGH: 
+          new_fan_speed = AC_FAN_HIGH; 
+          break;
+        default: 
+          break;
+      }
     }
   }
 
-  // Обработка preset для звука
+  // Обработка пресетов для звука и дисплея
   if (call.get_preset().has_value()) {
     auto preset_value = call.get_preset().value();
-    if (preset_value == climate::CLIMATE_PRESET_ACTIVITY) {
-      silent_mode_ = false; // звук включен
-    } else {
-      silent_mode_ = true; // звук выключен
-    }
-  }
-
-  // Обработка swing mode для дисплея
-  if (call.get_swing_mode().has_value()) {
-    auto swing_value = call.get_swing_mode().value();
-    if (swing_value == climate::CLIMATE_SWING_VERTICAL) {
-      display_light_state_ = true;
-    } else {
-      display_light_state_ = false;
+    
+    if (preset_value == climate::CLIMATE_PRESET_ECO) {
+      // ECO = звук выключен (тихий режим)
+      sound_state_ = SOUND_OFF;
+      display_state_ = DISPLAY_OFF;
+    } else if (preset_value == climate::CLIMATE_PRESET_COMFORT) {
+      // COMFORT = дисплей включен
+      display_state_ = DISPLAY_ON;
+      sound_state_ = SOUND_ON;
+    } else if (preset_value == climate::CLIMATE_PRESET_NONE) {
+      // NONE = все выключено
+      display_state_ = DISPLAY_OFF;
+      sound_state_ = SOUND_ON;
     }
   }
 
@@ -294,22 +291,13 @@ void GreeClimate::control(const climate::ClimateCall &call) {
   // Применяем основные настройки режима и вентилятора
   data_write_[MODE] = new_mode | new_fan_speed;
   
-  // Устанавливаем флаги дисплея и тихого режима
-  if (display_light_state_) {
-    data_write_[10] |= 0x02;
-  } else {
-    data_write_[10] &= ~0x02;
-  }
-  
-  if (silent_mode_) {
-    data_write_[11] |= 0x01;
-  } else {
-    data_write_[11] &= ~0x01;
-  }
+  // Устанавливаем флаги дисплея и звука
+  data_write_[10] = (data_write_[10] & ~0x02) | (display_state_ & 0x02);
+  data_write_[11] = (data_write_[11] & ~0x01) | (sound_state_ & 0x01);
 
   // Если включен турбо режим, переопределяем настройки
-  if (turbo_mode_) {
-    data_write_[10] = 7;
+  if (turbo_state_ == TURBO_ON) {
+    data_write_[10] = TURBO_ON;
   }
 
   // Рассчитываем и устанавливаем контрольную сумму
