@@ -340,10 +340,10 @@ void GreeClimate::control(const climate::ClimateCall &call) {
   }
 
   if (this->display_light_state_) {
-    data_write_[10] |= 0x02; 
-  } else {
-    data_write_[10] &= ~0x02; 
-  }
+    data_write_[10] |= 0x02;
+  } else {
+    data_write_[10] &= ~0x02;
+  }
 
   // temporary disabled
   if (call.get_swing_mode().has_value()) {
@@ -402,7 +402,7 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
 
 void GreeClimate::set_display_light(bool state) {
   this->display_light_state_ = state;
-  this->control(this->to_call()); 
+  this->control(this->make_call());
 }
 
 }  // namespace gree
