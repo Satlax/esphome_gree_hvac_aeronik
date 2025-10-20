@@ -129,19 +129,18 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   // Обновляем состояния из пакета
   display_state_ = (data[10] & 0x02) ? DISPLAY_ON : DISPLAY_OFF;
   
-  // ИСПРАВЛЕНО: Определение звука для вашей модели
-  // В ваших пакетах байт 11 всегда 0x00, звук вероятно в другом месте
-  sound_state_ = SOUND_ON; // Временно всегда включен
+  // ЗАМЕНА: Swing вместо Sound
+  swing_state_ = (data[11] == 0x10) ? SWING_ON : SWING_OFF;
   
-  // ИСПРАВЛЕНО: Турбо режим для вашей модели
+  // Турбо режим для вашей модели
   turbo_state_ = (data[10] == 0x0F) ? TURBO_ON : TURBO_OFF;
 
   // Обновляем переключатели
   if (turbo_switch != nullptr) {
     turbo_switch->publish_state(turbo_state_ == TURBO_ON);
   }
-  if (sound_switch != nullptr) {
-    sound_switch->publish_state(sound_state_ == SOUND_ON);
+  if (swing_switch != nullptr) {
+    swing_switch->publish_state(swing_state_ == SWING_ON);
   }
 
   target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
@@ -229,15 +228,19 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     data_write_[10] |= 0x02; // Бит 1 = дисплей включен
   }
 
-  // ИСПРАВЛЕНО: Турбо режим для вашей модели
+  // Турбо режим для вашей модели
   if (turbo_state_ == TURBO_ON) {
-    data_write_[10] = 0x0F; // Турбо режим для вашей модели
+    data_write_[10] = 0x0F; // Турбо режим
   } else {
-    data_write_[10] = 0x0E; // Нормальный режим для вашей модели
+    data_write_[10] = 0x0E; // Нормальный режим
   }
 
-  // Звук временно не управляется - нужно больше данных
-  // data_write_[11] остается как есть
+  // ЗАМЕНА: Swing вместо Sound
+  if (swing_state_ == SWING_ON) {
+    data_write_[11] = 0x10; // Swing включен
+  } else {
+    data_write_[11] = 0x60; // Swing выключен
+  }
 
   data_write_[MODE] = new_mode | new_fan_speed;
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
