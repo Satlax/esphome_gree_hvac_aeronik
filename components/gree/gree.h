@@ -2,14 +2,14 @@
 
 #include "esphome/core/component.h"
 #include "esphome/components/climate/climate.h"
-#include "esphome/components/switch/switch.h"
 #include "esphome/components/uart/uart.h"
+#include "esphome/components/switch/switch.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
 namespace gree {
 
-enum ac_mode : uint8_t {
+enum ac_mode: uint8_t {
   AC_MODE_OFF = 0x10,
   AC_MODE_AUTO = 0x80,
   AC_MODE_COOL = 0x90,
@@ -18,24 +18,24 @@ enum ac_mode : uint8_t {
   AC_MODE_HEAT = 0xC0
 };
 
-enum ac_fan : uint8_t {
+enum ac_fan: uint8_t {
   AC_FAN_AUTO = 0x00,
   AC_FAN_LOW = 0x01,
   AC_FAN_MEDIUM = 0x02,
   AC_FAN_HIGH = 0x03
 };
 
-enum display_mode : uint8_t {
+enum display_mode: uint8_t {
   DISPLAY_OFF = 0x00,
   DISPLAY_ON = 0x02
 };
 
-enum sound_mode : uint8_t {
+enum sound_mode: uint8_t {
   SOUND_ON = 0x00,
   SOUND_OFF = 0x01
 };
 
-enum turbo_mode : uint8_t {
+enum turbo_mode: uint8_t {
   TURBO_OFF = 0x02,
   TURBO_ON = 0x07
 };
@@ -44,7 +44,7 @@ enum turbo_mode : uint8_t {
 #define GREE_RX_BUFFER_SIZE 52
 
 union gree_start_bytes_t {
-  uint8_t u8x2[2];
+    uint8_t u8x2[2];
 };
 
 struct gree_header_t {
@@ -54,7 +54,7 @@ struct gree_header_t {
 
 struct gree_raw_packet_t {
   gree_header_t header;
-  uint8_t data[1]; // first data byte
+  uint8_t data[1];
 };
 
 class GreeClimate : public climate::Climate, public uart::UARTDevice, public PollingComponent {
@@ -66,9 +66,8 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   void set_display(bool state);
 
-  // Свитчи для Turbo и Sound
-  switch::Switch *turbo_switch;
-  switch::Switch *sound_switch;
+  esphome::switch_::Switch *turbo_switch;
+  esphome::switch_::Switch *sound_switch;
 
  protected:
   climate::ClimateTraits traits() override;
