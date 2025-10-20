@@ -48,16 +48,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void dump_config() override;
   void control(const climate::ClimateCall &call) override;
 
-  // Методы для управления дополнительными функциями
-  void set_display_light(bool state) { display_light_state_ = state; }
-  bool is_display_light_on() const { return display_light_state_; }
-  
-  void set_silent_mode(bool state) { silent_mode_ = state; }
-  bool is_silent_mode_on() const { return silent_mode_; }
-  
-  void set_turbo_mode(bool state) { turbo_mode_ = state; }
-  bool is_turbo_mode_on() const { return turbo_mode_; }
-
  protected:
   climate::ClimateTraits traits() override;
   void read_state_(const uint8_t *data, uint8_t size);
