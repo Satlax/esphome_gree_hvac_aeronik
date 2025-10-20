@@ -66,8 +66,14 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   void set_display(bool state);
 
-  esphome::switch_::Switch *turbo_switch;
-  esphome::switch_::Switch *sound_switch;
+  // Указатели на переключатели
+  esphome::switch_::Switch *turbo_switch{nullptr};
+  esphome::switch_::Switch *sound_switch{nullptr};
+
+  // Переменные состояний (должны быть public для доступа из lambda)
+  display_mode display_state_{DISPLAY_OFF};
+  sound_mode sound_state_{SOUND_ON};
+  turbo_mode turbo_state_{TURBO_OFF};
 
  protected:
   climate::ClimateTraits traits() override;
@@ -85,12 +91,8 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
 
-  bool receiving_packet_ = false;
-  bool has_valid_state_ = false;
-
-  display_mode display_state_ = DISPLAY_OFF;
-  sound_mode sound_state_ = SOUND_ON;
-  turbo_mode turbo_state_ = TURBO_OFF;
+  bool receiving_packet_{false};
+  bool has_valid_state_{false};
 };
 
 }  // namespace gree
