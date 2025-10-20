@@ -30,15 +30,16 @@ enum display_mode: uint8_t {
   DISPLAY_ON = 0x02
 };
 
-enum sound_mode: uint8_t {
-  SOUND_ON = 0x00,
-  SOUND_OFF = 0x01
+// ЗАМЕНА: Swing вместо Sound
+enum swing_mode: uint8_t {
+  SWING_OFF = 0x60,  // Без swing
+  SWING_ON = 0x10    // С swing
 };
 
 // ИСПРАВЛЕНО: Турбо режим для вашей модели
 enum turbo_mode: uint8_t {
-  TURBO_OFF = 0x0E,  // Было 0x02
-  TURBO_ON = 0x0F    // Было 0x07
+  TURBO_OFF = 0x0E,
+  TURBO_ON = 0x0F
 };
 
 #define GREE_START_BYTE 0x7E
@@ -69,11 +70,11 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   // Указатели на переключатели
   esphome::switch_::Switch *turbo_switch{nullptr};
-  esphome::switch_::Switch *sound_switch{nullptr};
+  esphome::switch_::Switch *swing_switch{nullptr};  // ЗАМЕНА: Swing вместо Sound
 
-  // Переменные состояний (должны быть public для доступа из lambda)
+  // Переменные состояний
   display_mode display_state_{DISPLAY_OFF};
-  sound_mode sound_state_{SOUND_ON};
+  swing_mode swing_state_{SWING_OFF};  // ЗАМЕНА: Swing вместо Sound
   turbo_mode turbo_state_{TURBO_OFF};
 
   // Сохранение температуры
