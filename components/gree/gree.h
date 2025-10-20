@@ -91,10 +91,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void dump_config() override;
   void control(const climate::ClimateCall &call) override;
   void set_supported_presets(const std::set<climate::ClimatePreset> &presets) { this->supported_presets_ = presets; }
-  void set_display_light(bool state);
-  bool is_display_light_on() const {
-      return this->display_light_state_;
-  }
   // void set_supported_swing_modes(const std::set<climate::ClimateSwingMode> &modes) {
   //   this->supported_swing_modes_ = modes;
   // }
@@ -117,7 +113,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
 
   bool receiving_packet_ = false;
-  bool display_light_state_ = false;
 
   std::set<climate::ClimatePreset> supported_presets_{};
   // std::set<climate::ClimateSwingMode> supported_swing_modes_{};
