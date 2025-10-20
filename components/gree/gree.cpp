@@ -401,8 +401,8 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
 }
 
 void GreeClimate::set_display_light(bool state) {
-  this->display_light_state_ = state;
-  this->control(this->make_call());
+  this->display_light_state_ = state;
+  this->control(this->make_call());
 }
 
 }  // namespace gree
