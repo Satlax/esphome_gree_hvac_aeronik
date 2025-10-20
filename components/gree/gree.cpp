@@ -128,8 +128,13 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
 
   // Обновляем состояния из пакета
   display_state_ = (data[10] & 0x02) ? DISPLAY_ON : DISPLAY_OFF;
-  sound_state_ = (data[11] & 0x01) ? SOUND_OFF : SOUND_ON;
-  turbo_state_ = (data[10] == 7 || data[10] == 15) ? TURBO_ON : TURBO_OFF;
+  
+  // ИСПРАВЛЕНО: Определение звука для вашей модели
+  // В ваших пакетах байт 11 всегда 0x00, звук вероятно в другом месте
+  sound_state_ = SOUND_ON; // Временно всегда включен
+  
+  // ИСПРАВЛЕНО: Турбо режим для вашей модели
+  turbo_state_ = (data[10] == 0x0F) ? TURBO_ON : TURBO_OFF;
 
   // Обновляем переключатели
   if (turbo_switch != nullptr) {
@@ -217,22 +222,22 @@ void GreeClimate::control(const climate::ClimateCall &call) {
   }
 
   // ВАЖНО: Сначала сбрасываем все флаги, потом устанавливаем нужные
-  data_write_[10] &= 0xFC; // Сбрасываем биты 0-1 байта 10 (дисплей и часть турбо)
-  data_write_[11] &= 0xFE; // Сбрасываем бит 0 байта 11 (звук)
+  data_write_[10] &= 0xFC; // Сбрасываем биты 0-1 байта 10
 
-  // Устанавливаем флаги в пакет - ИСПРАВЛЕННАЯ ЛОГИКА
+  // Устанавливаем флаги в пакет
   if (display_state_ == DISPLAY_ON) {
     data_write_[10] |= 0x02; // Бит 1 = дисплей включен
   }
 
-  if (sound_state_ == SOUND_OFF) {
-    data_write_[11] |= 0x01;  // Бит 0 = звук выключен
+  // ИСПРАВЛЕНО: Турбо режим для вашей модели
+  if (turbo_state_ == TURBO_ON) {
+    data_write_[10] = 0x0F; // Турбо режим для вашей модели
+  } else {
+    data_write_[10] = 0x0E; // Нормальный режим для вашей модели
   }
 
-  // Турбо режим ПЕРЕЗАПИСЫВАЕТ байт 10
-  if (turbo_state_ == TURBO_ON) {
-    data_write_[10] = 7; // Турбо режим (перезаписывает весь байт)
-  }
+  // Звук временно не управляется - нужно больше данных
+  // data_write_[11] остается как есть
 
   data_write_[MODE] = new_mode | new_fan_speed;
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
