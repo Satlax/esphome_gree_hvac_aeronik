@@ -72,7 +72,6 @@ void GreeClimate::update() {
 }
 
 void GreeClimate::restore_state_() {
-  // Restore saved temperature
   if (saved_temperature >= MIN_VALID_TEMPERATURE && saved_temperature <= MAX_VALID_TEMPERATURE) {
     data_write_[TEMPERATURE] = (uint8_t)((saved_temperature - MIN_VALID_TEMPERATURE) * 16);
     data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
@@ -83,6 +82,7 @@ void GreeClimate::restore_state_() {
 
 climate::ClimateTraits GreeClimate::traits() {
   auto traits = climate::ClimateTraits();
+
   traits.set_visual_min_temperature(MIN_VALID_TEMPERATURE);
   traits.set_visual_max_temperature(MAX_VALID_TEMPERATURE);
   traits.set_visual_temperature_step(TEMPERATURE_STEP);
@@ -113,8 +113,146 @@ climate::ClimateTraits GreeClimate::traits() {
   return traits;
 }
 
-// --- rest of functions: read_state_, control, set_display, set_turbo, set_swing, send_data_, dump_message_, get_checksum_ ---
-// Full code kept from your original, only removed Cyrillic and fixed closing braces.
+void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
+  uint8_t data_crc = data[size-1];
+  if (data_crc != get_checksum_(data, size)) {
+    ESP_LOGW(TAG, "Invalid checksum.");
+    return;
+  }
+
+  if (data[3] != 49) {
+    ESP_LOGW(TAG, "Invalid packet type.");
+    return;
+  }
+
+  display_state_ = (data[10] & DISPLAY_ON) ? DISPLAY_ON : DISPLAY_OFF;
+  turbo_state_ = (data[10] & TURBO_BIT);
+  swing_state_ = (data[11] == SWING_ON) ? SWING_ON : SWING_OFF;
+
+  if (turbo_switch != nullptr) turbo_switch->publish_state(turbo_state_);
+  if (swing_switch != nullptr) swing_switch->publish_state(swing_state_ == SWING_ON);
+
+  target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
+  current_temperature = data[INDOOR_TEMPERATURE] - 40;
+
+  saved_temperature = target_temperature;
+
+  data_write_[MODE] = data[MODE];
+  data_write_[TEMPERATURE] = data[TEMPERATURE];
+
+  switch (data[MODE] & MODE_MASK) {
+    case AC_MODE_OFF: mode = climate::CLIMATE_MODE_OFF; break;
+    case AC_MODE_AUTO: mode = climate::CLIMATE_MODE_AUTO; break;
+    case AC_MODE_COOL: mode = climate::CLIMATE_MODE_COOL; break;
+    case AC_MODE_DRY: mode = climate::CLIMATE_MODE_DRY; break;
+    case AC_MODE_FANONLY: mode = climate::CLIMATE_MODE_FAN_ONLY; break;
+    case AC_MODE_HEAT: mode = climate::CLIMATE_MODE_HEAT; break;
+    default: mode = climate::CLIMATE_MODE_OFF; break;
+  }
+
+  switch (data[MODE] & FAN_MASK) {
+    case AC_FAN_AUTO: fan_mode = climate::CLIMATE_FAN_AUTO; break;
+    case AC_FAN_LOW: fan_mode = climate::CLIMATE_FAN_LOW; break;
+    case AC_FAN_MEDIUM: fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
+    case AC_FAN_HIGH: fan_mode = climate::CLIMATE_FAN_HIGH; break;
+    default: fan_mode = climate::CLIMATE_FAN_AUTO; break;
+  }
+
+  preset = display_state_ == DISPLAY_ON ? climate::CLIMATE_PRESET_COMFORT : climate::CLIMATE_PRESET_NONE;
+
+  has_valid_state_ = true;
+  publish_state();
+}
+
+void GreeClimate::control(const climate::ClimateCall &call) {
+  data_write_[FORCE_UPDATE] = 175;
+
+  uint8_t new_mode = data_write_[MODE] & MODE_MASK;
+  uint8_t new_fan_speed = data_write_[MODE] & FAN_MASK;
+
+  if (call.get_mode().has_value()) {
+    switch (call.get_mode().value()) {
+      case climate::CLIMATE_MODE_OFF: new_mode = AC_MODE_OFF; break;
+      case climate::CLIMATE_MODE_AUTO: new_mode = AC_MODE_AUTO; break;
+      case climate::CLIMATE_MODE_COOL: new_mode = AC_MODE_COOL; break;
+      case climate::CLIMATE_MODE_DRY: new_mode = AC_MODE_DRY; new_fan_speed = AC_FAN_LOW; break;
+      case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
+      case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
+      default: break;
+    }
+  }
+
+  if (call.get_fan_mode().has_value()) {
+    switch (call.get_fan_mode().value()) {
+      case climate::CLIMATE_FAN_AUTO: new_fan_speed = AC_FAN_AUTO; break;
+      case climate::CLIMATE_FAN_LOW: new_fan_speed = AC_FAN_LOW; break;
+      case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = AC_FAN_MEDIUM; break;
+      case climate::CLIMATE_FAN_HIGH: new_fan_speed = AC_FAN_HIGH; break;
+      case climate::CLIMATE_FAN_QUIET: new_fan_speed = AC_FAN_LOW; break;
+      default: break;
+    }
+  }
+
+  if (call.get_preset().has_value())
+    display_state_ = call.get_preset().value() == climate::CLIMATE_PRESET_COMFORT ? DISPLAY_ON : DISPLAY_OFF;
+
+  if (call.get_target_temperature().has_value()) {
+    float temp = call.get_target_temperature().value();
+    if (temp >= MIN_VALID_TEMPERATURE && temp <= MAX_VALID_TEMPERATURE) {
+      data_write_[TEMPERATURE] = (uint8_t)((temp - MIN_VALID_TEMPERATURE) * 16);
+      saved_temperature = temp;
+    }
+  }
+
+  data_write_[MODE] = new_mode | new_fan_speed;
+
+  data_write_[10] &= ~0x03; // clear turbo/display bits
+  if (turbo_state_) data_write_[10] |= TURBO_BIT;
+  if (display_state_ == DISPLAY_ON) data_write_[10] |= DISPLAY_ON;
+
+  data_write_[11] = (swing_state_ == SWING_ON) ? SWING_ON : SWING_OFF;
+
+  data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
+  send_data_(data_write_, sizeof(data_write_));
+
+  data_write_[FORCE_UPDATE] = 0;
+  
+  publish_state();
+}
+
+void GreeClimate::set_display(bool state) {
+  display_state_ = state ? DISPLAY_ON : DISPLAY_OFF;
+  control(this->make_call());
+}
+
+void GreeClimate::set_turbo(bool state) {
+  turbo_state_ = state;
+  control(this->make_call());
+}
+
+void GreeClimate::set_swing(bool state) {
+  swing_state_ = state ? SWING_ON : SWING_OFF;
+  control(this->make_call());
+}
+
+void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
+  this->write_array(message, size);
+  dump_message_("Sent message", message, size);
+}
+
+void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8_t size) {
+  ESP_LOGV(TAG, "%s:", title);
+  char str[250] = {0};
+  char *pstr = str;
+  for (int i = 0; i < size; i++) pstr += sprintf(pstr, "%02X ", message[i]);
+  ESP_LOGV(TAG, "%s", str);
+}
+
+uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
+  uint8_t sum = 0;
+  for (size_t i = 2; i < size - 1; i++) sum += message[i];
+  return sum % 256;
+}
 
 }  // namespace gree
 }  // namespace esphome
