@@ -33,13 +33,13 @@ enum display_mode: uint8_t {
 
 // Byte 11
 enum swing_mode_t: uint8_t {
-  SWING_OFF = 0x60, 
-  SWING_ON = 0x10 
+  SWING_OFF = 0x60,
+  SWING_ON = 0x10
 };
 
 // Bit 0 in Byte 10 (Turbo)
 enum turbo_mode_t: uint8_t {
-  TURBO_BIT = 0x01 
+  TURBO_BIT = 0x01
 };
 
 #define GREE_START_BYTE 0x7E
@@ -82,7 +82,7 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   // State variables
   display_mode display_state_{DISPLAY_OFF};
   swing_mode_t swing_state_{SWING_OFF};
-  bool turbo_state_ = false; 
+  bool turbo_state_ = false;
   
   // Saved temperature
   float saved_temperature{24.0f};
@@ -97,11 +97,11 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
  private:
   uint8_t data_write_[47] = {0x7E, 0x7E, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x0E, 0x60, 0x00, 0x00, 0x00, 0x00, 
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                              0x00, 0x00, 0x0E, 0x60, 0x00, 0x00, 0x00, 0x00,
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
 
   bool receiving_packet_{false};
@@ -109,5 +109,5 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   bool first_update_{true};
 };
 
-}  // namespace gree
-}  // namespace esphome
+} // namespace gree
+} // namespace esphome
