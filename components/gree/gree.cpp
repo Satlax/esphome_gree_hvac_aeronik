@@ -6,7 +6,6 @@ namespace gree {
 
 static const char *const TAG = "gree";
 
-// byte positions
 static const uint8_t FORCE_UPDATE = 7;
 static const uint8_t MODE = 8;
 static const uint8_t MODE_MASK = 0b11110000;
@@ -91,7 +90,6 @@ climate::ClimateTraits GreeClimate::traits() {
 
   traits.set_supports_current_temperature(true);
   traits.set_supported_presets(this->supported_presets_);
-
   traits.add_supported_preset(climate::CLIMATE_PRESET_NONE);
   traits.add_supported_preset(climate::CLIMATE_PRESET_BOOST);
 
@@ -159,6 +157,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       case climate::CLIMATE_MODE_DRY: new_mode = AC_MODE_DRY; new_fan_speed = AC_FAN_LOW; break;
       case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
       case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
+      default: ESP_LOGW(TAG, "Unsupported climate mode"); break;
     }
   }
 
@@ -168,6 +167,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       case climate::CLIMATE_FAN_LOW: new_fan_speed = AC_FAN_LOW; break;
       case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = AC_FAN_MEDIUM; break;
       case climate::CLIMATE_FAN_HIGH: new_fan_speed = AC_FAN_HIGH; break;
+      default: ESP_LOGW(TAG, "Unsupported fan mode"); break;
     }
   }
 
@@ -215,6 +215,10 @@ void GreeClimate::set_display_light(bool state) {
   this->display_light_state_ = state;
   ESP_LOGI(TAG, "Display light set to: %s", state ? "ON" : "OFF");
   this->control(this->make_call());
+}
+
+bool GreeClimate::is_display_light_on() {
+  return this->display_light_state_;
 }
 
 }  // namespace gree
