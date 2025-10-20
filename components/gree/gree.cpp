@@ -98,7 +98,6 @@ climate::ClimateTraits GreeClimate::traits() {
     climate::CLIMATE_MODE_HEAT
   });
 
-  // ИСПРАВЛЕНО: Добавляем все поддерживаемые режимы вентилятора
   traits.set_supported_fan_modes({
       climate::CLIMATE_FAN_AUTO,
       climate::CLIMATE_FAN_LOW,
@@ -131,7 +130,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   // Обновляем состояния из пакета
   display_state_ = (data[10] & 0x02) ? DISPLAY_ON : DISPLAY_OFF;
   
-  // ЗАМЕНА: Swing вместо Sound
+  // Swing
   swing_state_ = (data[11] == 0x10) ? SWING_ON : SWING_OFF;
   
   // Турбо режим для вашей модели
@@ -161,7 +160,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     case AC_MODE_DRY: mode = climate::CLIMATE_MODE_DRY; break;
     case AC_MODE_FANONLY: mode = climate::CLIMATE_MODE_FAN_ONLY; break;
     case AC_MODE_HEAT: mode = climate::CLIMATE_MODE_HEAT; break;
-    default: mode = climate::CLIMATE_MODE_OFF; break; // Добавлен default case
+    default: mode = climate::CLIMATE_MODE_OFF; break;
   }
 
   switch (data[MODE] & FAN_MASK) {
@@ -169,7 +168,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     case AC_FAN_LOW: fan_mode = climate::CLIMATE_FAN_LOW; break;
     case AC_FAN_MEDIUM: fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
     case AC_FAN_HIGH: fan_mode = climate::CLIMATE_FAN_HIGH; break;
-    default: fan_mode = climate::CLIMATE_FAN_AUTO; break; // Добавлен default case
+    default: fan_mode = climate::CLIMATE_FAN_AUTO; break;
   }
 
   // Дисплей через preset
@@ -194,7 +193,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       case climate::CLIMATE_MODE_DRY: new_mode = AC_MODE_DRY; new_fan_speed = AC_FAN_LOW; break;
       case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
       case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
-      default: break; // Добавлен default case
+      default: break;
     }
   }
 
@@ -205,8 +204,8 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       case climate::CLIMATE_FAN_LOW: new_fan_speed = AC_FAN_LOW; break;
       case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = AC_FAN_MEDIUM; break;
       case climate::CLIMATE_FAN_HIGH: new_fan_speed = AC_FAN_HIGH; break;
-      case climate::CLIMATE_FAN_QUIET: new_fan_speed = AC_FAN_LOW; break; // Quiet = Low
-      default: break; // Добавлен default case
+      case climate::CLIMATE_FAN_QUIET: new_fan_speed = AC_FAN_LOW; break;
+      default: break;
     }
   }
 
@@ -244,7 +243,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     data_write_[10] = 0x0E; // Нормальный режим
   }
 
-  // ЗАМЕНА: Swing вместо Sound
+  // Swing
   if (swing_state_ == SWING_ON) {
     data_write_[11] = 0x10; // Swing включен
   } else {
