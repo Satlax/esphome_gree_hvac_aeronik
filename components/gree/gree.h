@@ -70,6 +70,11 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void set_display(bool state);
   void set_turbo(bool state);
   void set_swing(bool state);
+  
+  // *** НОВЫЕ СЕТТЕРЫ ДЛЯ КОНФИГУРАЦИИ ИЗ YAML ***
+  void set_turbo_switch(esphome::switch_::Switch *s) { this->turbo_switch = s; }
+  void set_swing_switch(esphome::switch_::Switch *s) { this->swing_switch = s; }
+  // **********************************************
 
   // Указатели на переключатели
   esphome::switch_::Switch *turbo_switch{nullptr};
@@ -92,9 +97,8 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void restore_state_();
 
  private:
-  // data_write_[10] = 0x0E (Турбо OFF, Дисплей ON)
   uint8_t data_write_[47] = {0x7E, 0x7E, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x0E, 0x60, 0x00, 0x00, 0x00, 0x00, // Исправлены значения 10 и 11
+                             0x00, 0x00, 0x0E, 0x60, 0x00, 0x00, 0x00, 0x00, 
                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
