@@ -221,7 +221,12 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
       this->preset = climate::CLIMATE_PRESET_NONE;
       break;
   }
-
+// --- Ensure the local display_light_state_ persists in the outgoing buffer ---
+  if (this->display_light_state_) {
+    data_write_[10] |= 0x02;
+  } else {
+    data_write_[10] &= ~0x02;
+  }
   this->publish_state();
 }
 
@@ -401,8 +406,9 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
 }
 
 void GreeClimate::set_display_light(bool state) {
-  this->display_light_state_ = state;
-  this->control(this->make_call());
+  this->display_light_state_ = state;
+  ESP_LOGI(TAG, "Display light set to: %s", state ? "ON" : "OFF");
+  this->control(this->make_call());
 }
 
 }  // namespace gree
