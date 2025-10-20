@@ -9,6 +9,7 @@
 namespace esphome {
 namespace gree {
 
+// AC modes
 enum ac_mode: uint8_t {
   AC_MODE_OFF = 0x10,
   AC_MODE_AUTO = 0x80,
@@ -18,6 +19,7 @@ enum ac_mode: uint8_t {
   AC_MODE_HEAT = 0xC0
 };
 
+// Fan modes
 enum ac_fan: uint8_t {
   AC_FAN_AUTO = 0x00,
   AC_FAN_LOW = 0x01,
@@ -25,19 +27,19 @@ enum ac_fan: uint8_t {
   AC_FAN_HIGH = 0x03
 };
 
-// Bit 1 in Byte 10
+// Display bit
 enum display_mode: uint8_t {
   DISPLAY_OFF = 0x00,
   DISPLAY_ON = 0x02
 };
 
-// Byte 11
+// Swing modes
 enum swing_mode_t: uint8_t {
   SWING_OFF = 0x60, 
   SWING_ON = 0x10 
 };
 
-// Bit 0 in Byte 10 (Turbo)
+// Turbo bit
 enum turbo_mode_t: uint8_t {
   TURBO_BIT = 0x01 
 };
@@ -65,26 +67,23 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void update() override;
   void dump_config() override;
   void control(const climate::ClimateCall &call) override;
-  
+
   // Setters for switch control
   void set_display(bool state);
   void set_turbo(bool state);
   void set_swing(bool state);
-  
-  // New Setters for YAML configuration
+
+  // External switches
   void set_turbo_switch(esphome::switch_::Switch *s) { this->turbo_switch = s; }
   void set_swing_switch(esphome::switch_::Switch *s) { this->swing_switch = s; }
 
-  // Switch pointers
   esphome::switch_::Switch *turbo_switch{nullptr};
   esphome::switch_::Switch *swing_switch{nullptr};
 
-  // State variables
+  // States
   display_mode display_state_{DISPLAY_OFF};
   swing_mode_t swing_state_{SWING_OFF};
-  bool turbo_state_ = false; 
-  
-  // Saved temperature
+  bool turbo_state_ = false;
   float saved_temperature{24.0f};
 
  protected:
@@ -96,12 +95,12 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void restore_state_();
 
  private:
-  uint8_t data_write_[47] = {0x7E, 0x7E, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x0E, 0x60, 0x00, 0x00, 0x00, 0x00, 
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  uint8_t data_write_[47] = {0x7E,0x7E,0x2C,0x01,0x00,0x00,0x00,0x00,
+                             0x00,0x00,0x0E,0x60,0x00,0x00,0x00,0x00,
+                             0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                             0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                             0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                             0x00,0x00,0x00,0x00,0x00,0x00,0x00};
   uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
 
   bool receiving_packet_{false};
