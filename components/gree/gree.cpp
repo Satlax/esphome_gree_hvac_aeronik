@@ -96,12 +96,6 @@ climate::ClimateTraits GreeClimate::traits() {
     climate::CLIMATE_PRESET_COMFORT
   });
 
-  // Добавляем пользовательские пресеты с понятными названиями
-  traits.add_supported_custom_preset("TURBO");
-  traits.add_supported_custom_preset("SILENT");
-  traits.add_supported_custom_preset("DISPLAY_ON");
-  traits.add_supported_custom_preset("DISPLAY_OFF");
-
   return traits;
 }
 
@@ -181,16 +175,12 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   // Устанавливаем соответствующий preset на основе состояний
   if (turbo_mode_) {
     this->preset = climate::CLIMATE_PRESET_BOOST;
-    this->custom_preset = "TURBO";
   } else if (silent_mode_) {
     this->preset = climate::CLIMATE_PRESET_ECO;
-    this->custom_preset = "SILENT";
   } else if (display_light_state_) {
     this->preset = climate::CLIMATE_PRESET_COMFORT;
-    this->custom_preset = "DISPLAY_ON";
   } else {
     this->preset = climate::CLIMATE_PRESET_NONE;
-    this->custom_preset = "DISPLAY_OFF";
   }
 
   has_valid_state_ = true;
@@ -266,7 +256,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     }
   }
 
-  // Обработка пресетов и пользовательских пресетов
+  // Обработка пресетов
   if (call.get_preset().has_value()) {
     auto preset_value = call.get_preset().value();
     
@@ -294,33 +284,6 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       silent_mode_ = false;
       display_light_state_ = false;
       data_write_[10] = 2; // Нормальный режим
-      data_write_[11] &= ~0x01;
-    }
-  }
-
-  if (call.get_custom_preset().has_value()) {
-    auto custom_preset = call.get_custom_preset().value();
-    
-    if (custom_preset == "TURBO") {
-      turbo_mode_ = true;
-      silent_mode_ = false;
-      display_light_state_ = false;
-      data_write_[10] = 7;
-    } else if (custom_preset == "SILENT") {
-      silent_mode_ = true;
-      turbo_mode_ = false;
-      display_light_state_ = false;
-      data_write_[11] |= 0x01;
-    } else if (custom_preset == "DISPLAY_ON") {
-      display_light_state_ = true;
-      turbo_mode_ = false;
-      silent_mode_ = false;
-      data_write_[10] |= 0x02;
-    } else if (custom_preset == "DISPLAY_OFF") {
-      display_light_state_ = false;
-      turbo_mode_ = false;
-      silent_mode_ = false;
-      data_write_[10] &= ~0x02;
       data_write_[11] &= ~0x01;
     }
   }
