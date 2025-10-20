@@ -75,12 +75,16 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   sound_mode sound_state_{SOUND_ON};
   turbo_mode turbo_state_{TURBO_OFF};
 
+  // Сохранение температуры
+  float saved_temperature{24.0f};
+
  protected:
   climate::ClimateTraits traits() override;
   void read_state_(const uint8_t *data, uint8_t size);
   void send_data_(const uint8_t *message, uint8_t size);
   void dump_message_(const char *title, const uint8_t *message, uint8_t size);
   uint8_t get_checksum_(const uint8_t *message, size_t size);
+  void restore_state_();
 
  private:
   uint8_t data_write_[47] = {0x7E, 0x7E, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00,
@@ -93,6 +97,7 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   bool receiving_packet_{false};
   bool has_valid_state_{false};
+  bool first_update_{true};
 };
 
 }  // namespace gree
