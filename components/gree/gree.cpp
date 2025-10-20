@@ -1,11 +1,13 @@
 #include "gree.h"
 #include "esphome/core/log.h"
+#include "esphome/components/switch/switch.h"
 
 namespace esphome {
 namespace gree {
 
 static const char *const TAG = "gree";
 
+// byte positions
 static const uint8_t FORCE_UPDATE = 7;
 static const uint8_t MODE = 8;
 static const uint8_t MODE_MASK = 0b11110000;
@@ -51,6 +53,7 @@ void GreeClimate::loop() {
     this->read_array(raw_packet->data, raw_packet->header.data_length);
     dump_message_("Read array", this->data_read_, raw_packet->header.data_length + sizeof(gree_header_t));
     read_state_(this->data_read_, raw_packet->header.data_length + sizeof(gree_header_t));
+
     receiving_packet_ = false;
     memset(this->data_read_, 0, GREE_RX_BUFFER_SIZE);
   }
@@ -79,111 +82,118 @@ climate::ClimateTraits GreeClimate::traits() {
   });
 
   traits.set_supported_fan_modes({
-    climate::CLIMATE_FAN_AUTO,
-    climate::CLIMATE_FAN_LOW,
-    climate::CLIMATE_FAN_MEDIUM,
-    climate::CLIMATE_FAN_HIGH
+      climate::CLIMATE_FAN_AUTO,
+      climate::CLIMATE_FAN_LOW,
+      climate::CLIMATE_FAN_MEDIUM,
+      climate::CLIMATE_FAN_HIGH
   });
 
-  traits.add_supported_preset(climate::CLIMATE_PRESET_NONE);
-  traits.add_supported_preset(climate::CLIMATE_PRESET_BOOST);  // Используем для Display
+  traits.set_supported_presets({ climate::CLIMATE_PRESET_NONE, climate::CLIMATE_PRESET_COMFORT });
+  traits.set_supports_current_temperature(true);
+
   return traits;
 }
 
 void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   uint8_t data_crc = data[size-1];
-  uint8_t get_crc = get_checksum_(data, size);
-  if (data_crc != get_crc) return;
+  if (data_crc != get_checksum_(data, size)) {
+    ESP_LOGW(TAG, "Invalid checksum.");
+    return;
+  }
 
-  // Состояния
+  if (data[3] != 49) {
+    ESP_LOGW(TAG, "Invalid packet type.");
+    return;
+  }
+
   display_state_ = (data[10] & 0x02) ? DISPLAY_ON : DISPLAY_OFF;
   sound_state_ = (data[11] & 0x01) ? SOUND_OFF : SOUND_ON;
   turbo_state_ = (data[10] == 7 || data[10] == 15) ? TURBO_ON : TURBO_OFF;
 
-  // Температуры
-  this->target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
-  this->current_temperature = data[INDOOR_TEMPERATURE] - 40;
+  target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
+  current_temperature = data[INDOOR_TEMPERATURE] - 40;
 
   data_write_[MODE] = data[MODE];
   data_write_[TEMPERATURE] = data[TEMPERATURE];
 
-  // Режим
   switch (data[MODE] & MODE_MASK) {
-    case AC_MODE_OFF: this->mode = climate::CLIMATE_MODE_OFF; break;
-    case AC_MODE_AUTO: this->mode = climate::CLIMATE_MODE_AUTO; break;
-    case AC_MODE_COOL: this->mode = climate::CLIMATE_MODE_COOL; break;
-    case AC_MODE_DRY: this->mode = climate::CLIMATE_MODE_DRY; break;
-    case AC_MODE_FANONLY: this->mode = climate::CLIMATE_MODE_FAN_ONLY; break;
-    case AC_MODE_HEAT: this->mode = climate::CLIMATE_MODE_HEAT; break;
+    case AC_MODE_OFF: mode = climate::CLIMATE_MODE_OFF; break;
+    case AC_MODE_AUTO: mode = climate::CLIMATE_MODE_AUTO; break;
+    case AC_MODE_COOL: mode = climate::CLIMATE_MODE_COOL; break;
+    case AC_MODE_DRY: mode = climate::CLIMATE_MODE_DRY; break;
+    case AC_MODE_FANONLY: mode = climate::CLIMATE_MODE_FAN_ONLY; break;
+    case AC_MODE_HEAT: mode = climate::CLIMATE_MODE_HEAT; break;
   }
 
   switch (data[MODE] & FAN_MASK) {
-    case AC_FAN_AUTO: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
-    case AC_FAN_LOW: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
-    case AC_FAN_MEDIUM: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
-    case AC_FAN_HIGH: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
+    case AC_FAN_AUTO: fan_mode = climate::CLIMATE_FAN_AUTO; break;
+    case AC_FAN_LOW: fan_mode = climate::CLIMATE_FAN_LOW; break;
+    case AC_FAN_MEDIUM: fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
+    case AC_FAN_HIGH: fan_mode = climate::CLIMATE_FAN_HIGH; break;
   }
 
-  // Пресет Display
-  this->preset = (display_state_ == DISPLAY_ON) ? climate::CLIMATE_PRESET_BOOST : climate::CLIMATE_PRESET_NONE;
+  preset = display_state_ == DISPLAY_ON ? climate::CLIMATE_PRESET_COMFORT : climate::CLIMATE_PRESET_NONE;
 
   has_valid_state_ = true;
-  this->publish_state();
+  publish_state();
 }
 
 void GreeClimate::control(const climate::ClimateCall &call) {
   data_write_[FORCE_UPDATE] = 175;
+
   uint8_t new_mode = data_write_[MODE] & MODE_MASK;
   uint8_t new_fan_speed = data_write_[MODE] & FAN_MASK;
 
-  // Режим
   if (call.get_mode().has_value()) {
-    climate::ClimateMode esp_mode = call.get_mode().value();
-    switch (esp_mode) {
+    switch (call.get_mode().value()) {
       case climate::CLIMATE_MODE_OFF: new_mode = AC_MODE_OFF; break;
       case climate::CLIMATE_MODE_AUTO: new_mode = AC_MODE_AUTO; break;
       case climate::CLIMATE_MODE_COOL: new_mode = AC_MODE_COOL; break;
       case climate::CLIMATE_MODE_DRY: new_mode = AC_MODE_DRY; new_fan_speed = AC_FAN_LOW; break;
       case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
       case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
-      default: break;
     }
   }
 
   if (call.get_fan_mode().has_value()) {
-    auto fan_mode_value = call.get_fan_mode().value();
-    switch (fan_mode_value) {
-      case climate::CLIMATE_FAN_AUTO: new_fan_speed = AC_FAN_AUTO; turbo_state_ = TURBO_OFF; break;
-      case climate::CLIMATE_FAN_LOW: new_fan_speed = AC_FAN_LOW; turbo_state_ = TURBO_OFF; break;
-      case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = AC_FAN_MEDIUM; turbo_state_ = TURBO_OFF; break;
-      case climate::CLIMATE_FAN_HIGH: new_fan_speed = AC_FAN_HIGH; turbo_state_ = TURBO_OFF; break;
+    switch (call.get_fan_mode().value()) {
+      case climate::CLIMATE_FAN_AUTO: new_fan_speed = AC_FAN_AUTO; break;
+      case climate::CLIMATE_FAN_LOW: new_fan_speed = AC_FAN_LOW; break;
+      case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = AC_FAN_MEDIUM; break;
+      case climate::CLIMATE_FAN_HIGH: new_fan_speed = AC_FAN_HIGH; break;
     }
   }
 
   if (call.get_target_temperature().has_value()) {
     float temp = call.get_target_temperature().value();
-    if (temp >= MIN_VALID_TEMPERATURE && temp <= MAX_VALID_TEMPERATURE)
+    if (temp >= MIN_VALID_TEMPERATURE && temp <= MAX_VALID_TEMPERATURE) {
       data_write_[TEMPERATURE] = (uint8_t)((temp - MIN_VALID_TEMPERATURE) * 16);
+    }
   }
 
-  data_write_[MODE] = new_mode | new_fan_speed;
-  data_write_[10] = (data_write_[10] & ~0x02) | (display_state_ & 0x02);
-  data_write_[11] = (data_write_[11] & ~0x01) | (sound_state_ & 0x01);
+  if (display_state_ == DISPLAY_ON) data_write_[10] |= 0x02;
+  else data_write_[10] &= ~0x02;
 
+  data_write_[MODE] = new_mode | new_fan_speed;
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
+
   data_write_[FORCE_UPDATE] = 0;
-
-  this->publish_state();
-}
-
-void GreeClimate::set_display(bool state) {
-  display_state_ = state ? DISPLAY_ON : DISPLAY_OFF;
-  this->control(climate::ClimateCall());  // Перепубликуем состояние
 }
 
 void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
   this->write_array(message, size);
+  dump_message_("Sent message", message, size);
+}
+
+void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8_t size) {
+  ESP_LOGV(TAG, "%s:", title);
+  char str[250] = {0};
+  char *pstr = str;
+  for (int i = 0; i < size; i++) {
+    pstr += sprintf(pstr, "%02X ", message[i]);
+  }
+  ESP_LOGV(TAG, "%s", str);
 }
 
 uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
