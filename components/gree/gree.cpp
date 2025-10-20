@@ -135,6 +135,9 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     return;
   }
 
+  bool new_light_state = data[10] & 0x02;
+  this->display_light_state_ = new_light_state;
+
   this->target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
   this->current_temperature = data[INDOOR_TEMPERATURE] - 40; // check later?
 
@@ -225,8 +228,8 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
 void GreeClimate::control(const climate::ClimateCall &call) {
   data_write_[FORCE_UPDATE] = 175;
   // show current temperature on display every time when sending new command. TEST!
-  data_write_[13] = 0x20;
-  
+  //data_write_[13] = 0x20;
+
 /*
   // logging of saved mode&fan vars
   char str[250] = {0};
@@ -336,6 +339,12 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       data_write_[TEMPERATURE] = (call.get_target_temperature().value() - MIN_VALID_TEMPERATURE) * 16;
   }
 
+  if (this->display_light_state_) {
+    data_write_[10] |= 0x02; 
+  } else {
+    data_write_[10] &= ~0x02; 
+  }
+
   // temporary disabled
   if (call.get_swing_mode().has_value()) {
     switch (call.get_swing_mode().value()) {
@@ -389,6 +398,11 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
     sum += message[i];
   uint8_t crc = sum % 256;
   return crc;
+}
+
+void GreeClimate::set_display_light(bool state) {
+  this->display_light_state_ = state;
+  this->control(this->to_call()); 
 }
 
 }  // namespace gree
