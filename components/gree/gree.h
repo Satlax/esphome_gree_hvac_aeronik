@@ -52,8 +52,8 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void set_turbo_mode(bool state) { turbo_mode_ = state; control(this->make_call()); }
   bool is_turbo_mode_on() const { return turbo_mode_; }
   
-  void set_sound_mode(bool state) { silent_mode_ = !state; control(this->make_call()); }
-  bool is_sound_mode_on() const { return !silent_mode_; }
+  void set_sound_mode(bool state) { silent_mode_ = !state; control(this->make_call()); } // sound_mode = !silent_mode
+  bool is_sound_mode_on() const { return !silent_mode_; } // sound_mode = !silent_mode
   
   void set_display_light(bool state) { display_light_state_ = state; control(this->make_call()); }
   bool is_display_light_on() const { return display_light_state_; }
