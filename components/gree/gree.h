@@ -24,6 +24,21 @@ enum ac_fan: uint8_t {
   AC_FAN_HIGH = 0x03
 };
 
+enum display_mode: uint8_t {
+  DISPLAY_OFF = 0x00,
+  DISPLAY_ON = 0x02  // Бит 1 в байте 10
+};
+
+enum sound_mode: uint8_t {
+  SOUND_ON = 0x00,   // Звук включен
+  SOUND_OFF = 0x01   // Бит 0 в байте 11
+};
+
+enum turbo_mode: uint8_t {
+  TURBO_OFF = 0x02,  // Нормальный режим
+  TURBO_ON = 0x07    // Турбо режим (код 7 или 15)
+};
+
 #define GREE_START_BYTE 0x7E
 #define GREE_RX_BUFFER_SIZE 52
 
@@ -48,16 +63,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void dump_config() override;
   void control(const climate::ClimateCall &call) override;
 
-  // Методы для управления дополнительными функциями
-  void set_turbo_mode(bool state) { turbo_mode_ = state; control(this->make_call()); }
-  bool is_turbo_mode_on() const { return turbo_mode_; }
-  
-  void set_sound_mode(bool state) { silent_mode_ = !state; control(this->make_call()); } // sound_mode = !silent_mode
-  bool is_sound_mode_on() const { return !silent_mode_; } // sound_mode = !silent_mode
-  
-  void set_display_light(bool state) { display_light_state_ = state; control(this->make_call()); }
-  bool is_display_light_on() const { return display_light_state_; }
-
  protected:
   climate::ClimateTraits traits() override;
   void read_state_(const uint8_t *data, uint8_t size);
@@ -76,9 +81,11 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   bool receiving_packet_ = false;
   bool has_valid_state_ = false;
-  bool display_light_state_ = false;
-  bool silent_mode_ = false;  // true = звук выключен (тихий режим)
-  bool turbo_mode_ = false;
+  
+  // Используем enum для более чистого кода
+  display_mode display_state_ = DISPLAY_OFF;
+  sound_mode sound_state_ = SOUND_ON;  // По умолчанию звук включен
+  turbo_mode turbo_state_ = TURBO_OFF;
 };
 
 }  // namespace gree
