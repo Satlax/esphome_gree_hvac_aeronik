@@ -60,9 +60,26 @@ void GreeClimate::loop() {
 }
 
 void GreeClimate::update() {
-  if (!has_valid_state_) return;
+  if (!has_valid_state_) {
+    if (first_update_) {
+      // Первое обновление - восстанавливаем сохраненную температуру
+      restore_state_();
+      first_update_ = false;
+    }
+    return;
+  }
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
+}
+
+void GreeClimate::restore_state_() {
+  // Восстанавливаем сохраненную температуру
+  if (saved_temperature >= MIN_VALID_TEMPERATURE && saved_temperature <= MAX_VALID_TEMPERATURE) {
+    data_write_[TEMPERATURE] = (uint8_t)((saved_temperature - MIN_VALID_TEMPERATURE) * 16);
+    data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
+    send_data_(data_write_, sizeof(data_write_));
+    ESP_LOGI(TAG, "Restored saved temperature: %.1f", saved_temperature);
+  }
 }
 
 climate::ClimateTraits GreeClimate::traits() {
@@ -124,6 +141,9 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
 
   target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
   current_temperature = data[INDOOR_TEMPERATURE] - 40;
+
+  // Сохраняем текущую температуру
+  saved_temperature = target_temperature;
 
   data_write_[MODE] = data[MODE];
   data_write_[TEMPERATURE] = data[TEMPERATURE];
@@ -191,6 +211,8 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     float temp = call.get_target_temperature().value();
     if (temp >= MIN_VALID_TEMPERATURE && temp <= MAX_VALID_TEMPERATURE) {
       data_write_[TEMPERATURE] = (uint8_t)((temp - MIN_VALID_TEMPERATURE) * 16);
+      // Сохраняем температуру
+      saved_temperature = temp;
     }
   }
 
@@ -201,12 +223,14 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     data_write_[10] &= ~0x02;
   }
 
+  // Флаг звука - ИСПРАВЛЕНО
   if (sound_state_ == SOUND_OFF) {
-    data_write_[11] |= 0x01;
+    data_write_[11] |= 0x01;  // Звук выключен
   } else {
-    data_write_[11] &= ~0x01;
+    data_write_[11] &= ~0x01; // Звук включен
   }
 
+  // Турбо режим
   if (turbo_state_ == TURBO_ON) {
     data_write_[10] = 7; // Турбо режим
   }
