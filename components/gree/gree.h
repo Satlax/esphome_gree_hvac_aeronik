@@ -8,7 +8,6 @@
 namespace esphome {
 namespace gree {
 
-// AC modes
 enum ac_mode: uint8_t {
   AC_MODE_OFF = 0x10,
   AC_MODE_AUTO = 0x80,
@@ -18,7 +17,6 @@ enum ac_mode: uint8_t {
   AC_MODE_HEAT = 0xC0
 };
 
-// AC fan speeds
 enum ac_fan: uint8_t {
   AC_FAN_AUTO = 0x00,
   AC_FAN_LOW = 0x01,
@@ -26,26 +24,12 @@ enum ac_fan: uint8_t {
   AC_FAN_HIGH = 0x03
 };
 
-// AC swing modes (not implemented yet)
+// not implemented yet
 enum ac_swing: uint8_t {
   AC_SWING_OFF = 0x44,
   AC_SWING_VERTICAL = 0x14,
   AC_SWING_HORIZONTAL = 0x41,
   AC_SWING_BOTH = 0x11
-};
-
-// AC horizontal louver positions (not implemented yet)
-enum ac_louver_H: uint8_t {
-  AC_LOUVERH_OFF = 0x00,
-  AC_LOUVERH_SWING_FULL = 0x10,
-  AC_LOUVERH_SWING_TOP = 0x20,
-  AC_LOUVERH_SWING_ABOVEMIDDLE = 0x30,
-  AC_LOUVERH_SWING_MIDDLE = 0x40,
-  AC_LOUVERH_SWING_BELOWMIDDLE = 0x50,
-  AC_LOUVERH_SWING_BOTTOM = 0x60,
-  AC_LOUVERH_SWING_MIDDLE_TO_BOTTOM = 0x70,
-  AC_LOUVERH_SWING_ABOVEMIDDLE_TO_BELOWMIDDLE = 0x90,
-  AC_LOUVERH_SWING_MIDDLE_TO_TOP = 0xB0
 };
 
 #define GREE_START_BYTE 0x7E
@@ -72,8 +56,11 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void dump_config() override;
   void control(const climate::ClimateCall &call) override;
 
+  // Управление дисплеем
+  void set_display_light(bool state);
+  bool is_display_light_on() const { return display_light_state_; }
+
   void set_supported_presets(const std::set<climate::ClimatePreset> &presets) { this->supported_presets_ = presets; }
-  // void set_supported_swing_modes(const std::set<climate::ClimateSwingMode> &modes) { this->supported_swing_modes_ = modes; }
 
  protected:
   climate::ClimateTraits traits() override;
@@ -83,15 +70,15 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   uint8_t get_checksum_(const uint8_t *message, size_t size);
 
  private:
-  uint8_t data_write_[47] = {0x7E, 0x7E, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  uint8_t data_write_[47] = {0x7E, 0x7E, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
   bool receiving_packet_ = false;
 
+  // Новые поля
+  bool display_light_state_ = false;
+  bool has_valid_state_ = false;
+
   std::set<climate::ClimatePreset> supported_presets_{};
-  // std::set<climate::ClimateSwingMode> supported_swing_modes_{};
 };
 
 }  // namespace gree
