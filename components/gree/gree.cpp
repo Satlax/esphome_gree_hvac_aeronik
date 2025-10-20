@@ -14,7 +14,7 @@ static const uint8_t MODE_MASK = 0b11110000;
 static const uint8_t FAN_MASK = 0b00001111;
 static const uint8_t CRC_WRITE = 46;
 static const uint8_t TEMPERATURE = 9;
-static const uint8_t INDOOR_TEMPERATURE = 46; // ВАЖНО: это неверно, INDOOR_TEMPERATURE должна быть 43 или 45 в большинстве Gree, но оставим 46, если у вас она там.
+static const uint8_t INDOOR_TEMPERATURE = 46; 
 
 static const uint8_t MIN_VALID_TEMPERATURE = 16;
 static const uint8_t MAX_VALID_TEMPERATURE = 30;
@@ -62,7 +62,6 @@ void GreeClimate::loop() {
 void GreeClimate::update() {
   if (!has_valid_state_) {
     if (first_update_) {
-      // Первое обновление - восстанавливаем сохраненную температуру
       restore_state_();
       first_update_ = false;
     }
@@ -232,10 +231,9 @@ void GreeClimate::control(const climate::ClimateCall &call) {
 
   // --- ИСПРАВЛЕННАЯ ЛОГИКА ДЛЯ БАЙТА 10 (Турбо и Дисплей) ---
 
-  // Начинаем с базового значения 0x0C (Турбо OFF, Дисплей OFF) 
-  // Мы знаем, что 0x0E = Турбо OFF, Дисплей ON; 0x0F = Турбо ON, Дисплей ON.
-  // Следовательно, базовое значение без битов 0 и 1 (0x03) это 0x0C.
-  data_write_[10] = (data_write_[10] & ~0x03) | 0x0C; // Очищаем биты 0 и 1, сохраняем остальные, если они есть.
+  // Начинаем с базового значения 0x0C (очищаем биты 0 и 1)
+  // 0x0C = 0b1100. Это нужно для того, чтобы не сбросить старшие биты
+  data_write_[10] &= ~0x03; // Очищаем биты 0 и 1
 
   // 1. Устанавливаем бит Турбо (0x01)
   if (turbo_state_) {
