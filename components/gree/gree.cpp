@@ -98,11 +98,13 @@ climate::ClimateTraits GreeClimate::traits() {
     climate::CLIMATE_MODE_HEAT
   });
 
+  // ИСПРАВЛЕНО: Добавляем все поддерживаемые режимы вентилятора
   traits.set_supported_fan_modes({
       climate::CLIMATE_FAN_AUTO,
       climate::CLIMATE_FAN_LOW,
       climate::CLIMATE_FAN_MEDIUM,
-      climate::CLIMATE_FAN_HIGH
+      climate::CLIMATE_FAN_HIGH,
+      climate::CLIMATE_FAN_QUIET
   });
 
   traits.set_supported_presets({ 
@@ -159,6 +161,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     case AC_MODE_DRY: mode = climate::CLIMATE_MODE_DRY; break;
     case AC_MODE_FANONLY: mode = climate::CLIMATE_MODE_FAN_ONLY; break;
     case AC_MODE_HEAT: mode = climate::CLIMATE_MODE_HEAT; break;
+    default: mode = climate::CLIMATE_MODE_OFF; break; // Добавлен default case
   }
 
   switch (data[MODE] & FAN_MASK) {
@@ -166,6 +169,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     case AC_FAN_LOW: fan_mode = climate::CLIMATE_FAN_LOW; break;
     case AC_FAN_MEDIUM: fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
     case AC_FAN_HIGH: fan_mode = climate::CLIMATE_FAN_HIGH; break;
+    default: fan_mode = climate::CLIMATE_FAN_AUTO; break; // Добавлен default case
   }
 
   // Дисплей через preset
@@ -182,22 +186,27 @@ void GreeClimate::control(const climate::ClimateCall &call) {
   uint8_t new_fan_speed = data_write_[MODE] & FAN_MASK;
 
   if (call.get_mode().has_value()) {
-    switch (call.get_mode().value()) {
+    climate::ClimateMode esp_mode = call.get_mode().value();
+    switch (esp_mode) {
       case climate::CLIMATE_MODE_OFF: new_mode = AC_MODE_OFF; break;
       case climate::CLIMATE_MODE_AUTO: new_mode = AC_MODE_AUTO; break;
       case climate::CLIMATE_MODE_COOL: new_mode = AC_MODE_COOL; break;
       case climate::CLIMATE_MODE_DRY: new_mode = AC_MODE_DRY; new_fan_speed = AC_FAN_LOW; break;
       case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
       case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
+      default: break; // Добавлен default case
     }
   }
 
   if (call.get_fan_mode().has_value()) {
-    switch (call.get_fan_mode().value()) {
+    climate::ClimateFanMode esp_fan_mode = call.get_fan_mode().value();
+    switch (esp_fan_mode) {
       case climate::CLIMATE_FAN_AUTO: new_fan_speed = AC_FAN_AUTO; break;
       case climate::CLIMATE_FAN_LOW: new_fan_speed = AC_FAN_LOW; break;
       case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = AC_FAN_MEDIUM; break;
       case climate::CLIMATE_FAN_HIGH: new_fan_speed = AC_FAN_HIGH; break;
+      case climate::CLIMATE_FAN_QUIET: new_fan_speed = AC_FAN_LOW; break; // Quiet = Low
+      default: break; // Добавлен default case
     }
   }
 
