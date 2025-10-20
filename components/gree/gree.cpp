@@ -14,7 +14,7 @@ static const uint8_t MODE_MASK = 0b11110000;
 static const uint8_t FAN_MASK = 0b00001111;
 static const uint8_t CRC_WRITE = 46;
 static const uint8_t TEMPERATURE = 9;
-static const uint8_t INDOOR_TEMPERATURE = 46; 
+static const uint8_t INDOOR_TEMPERATURE = 45; // Corrected from 46 (which is CRC)
 
 static const uint8_t MIN_VALID_TEMPERATURE = 16;
 static const uint8_t MAX_VALID_TEMPERATURE = 30;
@@ -104,9 +104,9 @@ climate::ClimateTraits GreeClimate::traits() {
       climate::CLIMATE_FAN_QUIET
   });
 
-  traits.set_supported_presets({ 
-    climate::CLIMATE_PRESET_NONE, 
-    climate::CLIMATE_PRESET_COMFORT 
+  traits.set_supported_presets({
+    climate::CLIMATE_PRESET_NONE,
+    climate::CLIMATE_PRESET_COMFORT
   });
   traits.set_supports_current_temperature(true);
 
@@ -176,7 +176,13 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       case climate::CLIMATE_MODE_AUTO: new_mode = AC_MODE_AUTO; break;
       case climate::CLIMATE_MODE_COOL: new_mode = AC_MODE_COOL; break;
       case climate::CLIMATE_MODE_DRY: new_mode = AC_MODE_DRY; new_fan_speed = AC_FAN_LOW; break;
-      case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
+      case climate::CLIMATE_MODE_FAN_ONLY:
+          new_mode = AC_MODE_FANONLY;
+          // Fix: force fan speed to AUTO if not specified when entering FAN_ONLY mode
+          if (!call.get_fan_mode().has_value()) {
+              new_fan_speed = AC_FAN_AUTO;
+          }
+          break;
       case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
       default: break;
     }
@@ -206,7 +212,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
 
   data_write_[MODE] = new_mode | new_fan_speed;
 
-  data_write_[10] &= ~0x03; // clear turbo/display bits
+  data_write_[10] &= ~0x03; // clear turbo/display bits (Bit 0 and Bit 1)
   if (turbo_state_) data_write_[10] |= TURBO_BIT;
   if (display_state_ == DISPLAY_ON) data_write_[10] |= DISPLAY_ON;
 
@@ -216,23 +222,29 @@ void GreeClimate::control(const climate::ClimateCall &call) {
   send_data_(data_write_, sizeof(data_write_));
 
   data_write_[FORCE_UPDATE] = 0;
-  
+
   publish_state();
 }
 
 void GreeClimate::set_display(bool state) {
+  // Create a minimal call to control() to apply the change
+  auto call = this->make_call();
   display_state_ = state ? DISPLAY_ON : DISPLAY_OFF;
-  control(this->make_call());
+  this->control(call);
 }
 
 void GreeClimate::set_turbo(bool state) {
+  // Create a minimal call to control() to apply the change
+  auto call = this->make_call();
   turbo_state_ = state;
-  control(this->make_call());
+  this->control(call);
 }
 
 void GreeClimate::set_swing(bool state) {
+  // Create a minimal call to control() to apply the change
+  auto call = this->make_call();
   swing_state_ = state ? SWING_ON : SWING_OFF;
-  control(this->make_call());
+  this->control(call);
 }
 
 void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
@@ -254,5 +266,5 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
   return sum % 256;
 }
 
-}  // namespace gree
-}  // namespace esphome
+} // namespace gree
+} // namespace esphome
