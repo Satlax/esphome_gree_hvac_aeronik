@@ -88,13 +88,10 @@ climate::ClimateTraits GreeClimate::traits() {
 
   traits.set_supports_current_temperature(true);
 
-  // Добавляем поддержку пресетов для дополнительных функций
-  traits.set_supported_presets({
-    climate::CLIMATE_PRESET_NONE,
-    climate::CLIMATE_PRESET_BOOST,
-    climate::CLIMATE_PRESET_ECO,
-    climate::CLIMATE_PRESET_COMFORT
-  });
+  // Добавляем поддержку кастомных флагов для переключателей
+  traits.add_supported_custom_fan_mode("TURBO");
+  traits.add_supported_custom_preset("SOUND");
+  traits.add_supported_custom_swing_mode("DISPLAY");
 
   return traits;
 }
@@ -172,15 +169,23 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
       break;
   }
 
-  // Устанавливаем соответствующий preset на основе состояний
+  // Устанавливаем кастомные флаги
   if (turbo_mode_) {
-    this->preset = climate::CLIMATE_PRESET_BOOST;
-  } else if (silent_mode_) {
-    this->preset = climate::CLIMATE_PRESET_ECO;
-  } else if (display_light_state_) {
-    this->preset = climate::CLIMATE_PRESET_COMFORT;
+    this->custom_fan_mode = "TURBO";
+  } else {
+    this->custom_fan_mode = "";
+  }
+
+  if (!silent_mode_) { // sound_mode = !silent_mode
+    this->preset = climate::CLIMATE_PRESET_ACTIVITY; // Используем для звука
   } else {
     this->preset = climate::CLIMATE_PRESET_NONE;
+  }
+
+  if (display_light_state_) {
+    this->swing_mode = climate::CLIMATE_SWING_VERTICAL; // Используем для дисплея
+  } else {
+    this->swing_mode = climate::CLIMATE_SWING_OFF;
   }
 
   has_valid_state_ = true;
@@ -243,6 +248,36 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     }
   }
 
+  // Обработка кастомного fan mode для турбо режима
+  if (call.get_custom_fan_mode().has_value()) {
+    auto custom_fan = call.get_custom_fan_mode().value();
+    if (custom_fan == "TURBO") {
+      turbo_mode_ = true;
+    } else {
+      turbo_mode_ = false;
+    }
+  }
+
+  // Обработка preset для звука
+  if (call.get_preset().has_value()) {
+    auto preset_value = call.get_preset().value();
+    if (preset_value == climate::CLIMATE_PRESET_ACTIVITY) {
+      silent_mode_ = false; // звук включен
+    } else {
+      silent_mode_ = true; // звук выключен
+    }
+  }
+
+  // Обработка swing mode для дисплея
+  if (call.get_swing_mode().has_value()) {
+    auto swing_value = call.get_swing_mode().value();
+    if (swing_value == climate::CLIMATE_SWING_VERTICAL) {
+      display_light_state_ = true;
+    } else {
+      display_light_state_ = false;
+    }
+  }
+
   // В режиме осушения всегда устанавливаем низкую скорость
   if (new_mode == AC_MODE_DRY) {
     new_fan_speed = AC_FAN_LOW;
@@ -253,38 +288,6 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     float temp = call.get_target_temperature().value();
     if (temp >= MIN_VALID_TEMPERATURE && temp <= MAX_VALID_TEMPERATURE) {
       data_write_[TEMPERATURE] = (uint8_t)((temp - MIN_VALID_TEMPERATURE) * 16);
-    }
-  }
-
-  // Обработка пресетов
-  if (call.get_preset().has_value()) {
-    auto preset_value = call.get_preset().value();
-    
-    if (preset_value == climate::CLIMATE_PRESET_BOOST) {
-      // Турбо режим
-      turbo_mode_ = true;
-      silent_mode_ = false;
-      display_light_state_ = false;
-      data_write_[10] = 7; // Код для турбо режима
-    } else if (preset_value == climate::CLIMATE_PRESET_ECO) {
-      // Тихий режим (отключение биппера)
-      silent_mode_ = true;
-      turbo_mode_ = false;
-      display_light_state_ = false;
-      data_write_[11] |= 0x01;
-    } else if (preset_value == climate::CLIMATE_PRESET_COMFORT) {
-      // Включить подсветку дисплея
-      display_light_state_ = true;
-      turbo_mode_ = false;
-      silent_mode_ = false;
-      data_write_[10] |= 0x02;
-    } else if (preset_value == climate::CLIMATE_PRESET_NONE) {
-      // Нормальный режим - выключить все дополнительные функции
-      turbo_mode_ = false;
-      silent_mode_ = false;
-      display_light_state_ = false;
-      data_write_[10] = 2; // Нормальный режим
-      data_write_[11] &= ~0x01;
     }
   }
 
