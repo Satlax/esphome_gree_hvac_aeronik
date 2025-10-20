@@ -35,9 +35,10 @@ enum sound_mode: uint8_t {
   SOUND_OFF = 0x01
 };
 
+// ИСПРАВЛЕНО: Турбо режим для вашей модели
 enum turbo_mode: uint8_t {
-  TURBO_OFF = 0x02,
-  TURBO_ON = 0x07
+  TURBO_OFF = 0x0E,  // Было 0x02
+  TURBO_ON = 0x0F    // Было 0x07
 };
 
 #define GREE_START_BYTE 0x7E
