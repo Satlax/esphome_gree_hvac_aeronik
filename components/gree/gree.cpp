@@ -1,6 +1,7 @@
 #include <cmath>
 #include "gree.h"
 #include "esphome/core/macros.h"
+#include "esphome/components/switch/switch.h"
 
 namespace esphome {
 namespace gree {
@@ -23,7 +24,7 @@ static const uint8_t MIN_VALID_TEMPERATURE = 16;
 static const uint8_t MAX_VALID_TEMPERATURE = 30;
 static const uint8_t TEMPERATURE_STEP = 1;
 
-// prints user configuration
+
 void GreeClimate::dump_config() {
   ESP_LOGCONFIG(TAG, "Gree:");
   ESP_LOGCONFIG(TAG, "  Update interval: %u", this->get_update_interval());
@@ -36,7 +37,7 @@ void GreeClimate::loop() {
 
   while (!receiving_packet_ && this->available() >= sizeof(gree_header_t)) {
     if (this->peek() != GREE_START_BYTE) {
-      this->read(); // читаем байт "в никуда"
+      this->read(); 
       continue;
     }
 
@@ -94,25 +95,22 @@ climate::ClimateTraits GreeClimate::traits() {
       climate::CLIMATE_FAN_HIGH
   });
 
-  // --- ПОДДЕРЖКА SWING ЧЕРЕЗ PRESETS ---
   traits.set_supports_current_temperature(true);
   traits.set_supports_two_point_target_temperature(false);
 
   traits.set_supported_presets({
-    climate::CLIMATE_PRESET_NONE,    // Swing OFF
-    climate::CLIMATE_PRESET_COMFORT, // Swing Full
-    climate::CLIMATE_PRESET_HOME,    // Swing Top
-    climate::CLIMATE_PRESET_AWAY,    // Swing Mid
-    climate::CLIMATE_PRESET_BOOST    // Swing Low
+    climate::CLIMATE_PRESET_NONE,    
+    climate::CLIMATE_PRESET_COMFORT, 
+    climate::CLIMATE_PRESET_HOME,    
+    climate::CLIMATE_PRESET_AWAY,    
+    climate::CLIMATE_PRESET_BOOST    
   });
   
   return traits;
 }
 
 void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
-  // get checksum byte from received data (using the last byte)
   uint8_t data_crc = data[size-1];
-  // get checksum byte based on received data (calculating)
   uint8_t get_crc = get_checksum_(data, size);
 
   if (data_crc != get_crc) {
@@ -120,24 +118,21 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     return;
   }
 
-// now we are using only packets with 0x31 as first data byte
   if (data[3] != 49) {
     ESP_LOGW(TAG, "Invalid packet type.");
     return;
   }
 
   this->target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
-  this->current_temperature = data[INDOOR_TEMPERATURE] - 40; // Используем T-40
+  this->current_temperature = data[INDOOR_TEMPERATURE] - 40; 
 
-  // partially saving current state to previous request
   data_write_[MODE] = data[MODE];
   data_write_[TEMPERATURE] = data[TEMPERATURE];
 
-  // --- ЧТЕНИЕ НОВЫХ СОСТОЯНИЙ ---
   uint8_t byte10 = data[10];
   uint8_t byte13 = data[13];
 
-  // SWING PRESET (Байт 13)
+  // SWING PRESET (Byte 13)
   this->current_swing_value_ = byte13;
   switch (this->current_swing_value_) {
     case SWING_OFF:
@@ -159,11 +154,11 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
       this->preset = climate::CLIMATE_PRESET_NONE;
   }
   
-  // TURBO (Байт 10) - 7 или 15
+  // TURBO (Byte 10)
   this->turbo_state_ = (byte10 == TURBO_BIT_COOL || byte10 == TURBO_BIT_HEAT); 
   if (this->turbo_switch_ != nullptr) this->turbo_switch_->publish_state(this->turbo_state_);
   
-  // DISPLAY (Байт 10) - Проверяем бит 0x02, который включает/выключает дисплей
+  // DISPLAY (Byte 10)
   this->display_state_ = (byte10 & 0x02) != 0; 
   if (this->display_switch_ != nullptr) this->display_switch_->publish_state(this->display_state_);
 
@@ -214,7 +209,6 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
 
 void GreeClimate::control(const climate::ClimateCall &call) {
   data_write_[FORCE_UPDATE] = 175;
-  // Байт 13 будет переопределен далее, но оставим 0x20 для отображения температуры
   data_write_[13] = 0x20; 
   
   uint8_t new_mode = data_write_[MODE] & MODE_MASK;
@@ -247,7 +241,6 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     }
   }
 
-  // set fan speed only if MODE != DRY (only LOW available)
   if (call.get_fan_mode().has_value()) {
     switch (call.get_fan_mode().value()) {
       case climate::CLIMATE_FAN_AUTO:
@@ -268,12 +261,10 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     }
   }
   
-  // set low speed when DRY mode because other speeds are not available
   if (new_mode == AC_MODE_DRY && new_fan_speed != AC_FAN_LOW) {
     new_fan_speed = AC_FAN_LOW;
   }
 
-  // --- УПРАВЛЕНИЕ SWING PRESET ---
   if (call.get_preset().has_value()) {
     switch (call.get_preset().value()) {
       case climate::CLIMATE_PRESET_NONE:
@@ -297,17 +288,12 @@ void GreeClimate::control(const climate::ClimateCall &call) {
   }
 
   if (call.get_target_temperature().has_value()) {
-    // check if temperature set in valid limits
     if (call.get_target_temperature().value() >= MIN_VALID_TEMPERATURE && call.get_target_temperature().value() <= MAX_VALID_TEMPERATURE)
       data_write_[TEMPERATURE] = (call.get_target_temperature().value() - MIN_VALID_TEMPERATURE) * 16;
   }
 
-  // --- ПРИМЕНЕНИЕ SWING И TURBO/DISPLAY ---
-  
-  // 1. Применяем SWING (Байт 13)
   data_write_[13] = this->current_swing_value_;
   
-  // 2. Применяем TURBO/DISPLAY (Байт 10)
   uint8_t byte10;
   
   if (new_mode == AC_MODE_COOL) {
@@ -316,35 +302,29 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       byte10 = TURBO_BIT_COOL;
     }
   } else if (new_mode == AC_MODE_HEAT) {
-    // В режиме HEAT обычно +8 к базовым маскам
     byte10 = (this->display_state_ ? DISPLAY_ON_MASK : DISPLAY_OFF_MASK) + HEAT_MODE_OFFSET;
     if (this->turbo_state_) {
       byte10 = TURBO_BIT_HEAT;
     }
   } else {
-    // Для остальных режимов (AUTO/FANONLY/DRY) используем базовую маску
-    // Принудительно отключаем Turbo, если режим не COOL/HEAT
+    // Force off turbo state if mode is not cool or heat
     this->turbo_state_ = false; 
     if (this->turbo_switch_ != nullptr) this->turbo_switch_->publish_state(false);
     
-    // Используем базовую маску, которая не включает TURBO
     byte10 = this->display_state_ ? DISPLAY_ON_MASK : DISPLAY_OFF_MASK;
   }
   
   data_write_[10] = byte10;
 
-  // 3. Применяем MODE + FAN_SPEED
   data_write_[MODE] = new_mode + new_fan_speed;
 
-  // compute checksum & send data
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
 
-  // change of force_update byte to "passive" state
   data_write_[FORCE_UPDATE] = 0;
 }
 
-// --- Новые функции для управления переключателями (РЕАЛИЗАЦИЯ) ---
+// Custom functions for switches (Implementation)
 
 void GreeClimate::set_display(bool state) {
   this->display_state_ = state;
@@ -356,7 +336,7 @@ void GreeClimate::set_turbo(bool state) {
   this->control(this->make_call());
 }
 
-// --- Вспомогательные функции ---
+// Helper functions
 
 void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
   this->write_array(message, size);
@@ -365,7 +345,6 @@ void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
 
 void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8_t size) {
   ESP_LOGV(TAG, "%s:", title);
-  // Используйте ASCII, как вы просили.
   char str[250] = {0};
   char *pstr = str;
   if (size * 3 > sizeof(str)) ESP_LOGE(TAG, "too long byte data");
@@ -376,10 +355,8 @@ void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8
 }
 
 uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
-  // position of crc in packet
   uint8_t position = size - 1;
   uint8_t sum = 0;
-  // ignore first 2 bytes & last one
   for (int i = 2; i < position; i++)
     sum += message[i];
   uint8_t crc = sum % 256;
@@ -387,5 +364,5 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
 }
 
 
-}  // namespace gree
-}  // namespace esphome
+} // namespace gree
+} // namespace esphome
