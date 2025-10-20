@@ -48,6 +48,16 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void dump_config() override;
   void control(const climate::ClimateCall &call) override;
 
+  // Методы для управления дополнительными функциями
+  void set_turbo_mode(bool state) { turbo_mode_ = state; control(this->make_call()); }
+  bool is_turbo_mode_on() const { return turbo_mode_; }
+  
+  void set_sound_mode(bool state) { silent_mode_ = !state; control(this->make_call()); }
+  bool is_sound_mode_on() const { return !silent_mode_; }
+  
+  void set_display_light(bool state) { display_light_state_ = state; control(this->make_call()); }
+  bool is_display_light_on() const { return display_light_state_; }
+
  protected:
   climate::ClimateTraits traits() override;
   void read_state_(const uint8_t *data, uint8_t size);
@@ -67,7 +77,7 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   bool receiving_packet_ = false;
   bool has_valid_state_ = false;
   bool display_light_state_ = false;
-  bool silent_mode_ = false;
+  bool silent_mode_ = false;  // true = звук выключен (тихий режим)
   bool turbo_mode_ = false;
 };
 
