@@ -21,7 +21,6 @@ static const uint8_t TEMPERATURE_STEP = 1;
 void GreeClimate::dump_config() {
   ESP_LOGCONFIG(TAG, "Gree:");
   ESP_LOGCONFIG(TAG, "  Update interval: %u", this->get_update_interval());
-  this->dump_traits_(TAG);
   this->check_uart_settings(4800, 1, uart::UART_CONFIG_PARITY_EVEN, 8);
 }
 
@@ -89,13 +88,21 @@ climate::ClimateTraits GreeClimate::traits() {
 
   traits.set_supports_current_temperature(true);
 
-  // добавляем встроенные пресеты для управления светом и бипером
-  traits.add_supported_preset(climate::CLIMATE_PRESET_NONE);
-  traits.add_supported_preset(climate::CLIMATE_PRESET_BOOST);
-  traits.add_supported_preset(climate::CLIMATE_PRESET_COMFORT); // можно использовать для Display Light
-  traits.add_supported_preset(climate::CLIMATE_PRESET_ECO);     // можно использовать для Silent Mode
+  // Добавляем поддержку пресетов для дополнительных функций
+  traits.set_supported_presets({
+    climate::CLIMATE_PRESET_NONE,
+    climate::CLIMATE_PRESET_BOOST,
+    climate::CLIMATE_PRESET_COMFORT,
+    climate::CLIMATE_PRESET_ECO,
+    climate::CLIMATE_PRESET_ACTIVITY,
+    climate::CLIMATE_PRESET_SLEEP
+  });
 
-  traits.set_supported_presets(this->supported_presets_);
+  // Добавляем пользовательские пресеты
+  traits.add_supported_custom_preset("TURBO");
+  traits.add_supported_custom_preset("SILENT");
+  traits.add_supported_custom_preset("DISPLAY_LIGHT_ON");
+  traits.add_supported_custom_preset("DISPLAY_LIGHT_OFF");
 
   return traits;
 }
@@ -113,7 +120,15 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     return;
   }
 
+  // Читаем состояние дисплея
   display_light_state_ = data[10] & 0x02;
+  
+  // Читаем состояние тихого режима (биппер)
+  silent_mode_ = data[11] & 0x01;
+  
+  // Читаем состояние турбо режима
+  turbo_mode_ = (data[10] == 7 || data[10] == 15);
+
   target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
   current_temperature = data[INDOOR_TEMPERATURE] - 40;
 
@@ -136,7 +151,16 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     case AC_FAN_HIGH: fan_mode = climate::CLIMATE_FAN_HIGH; break;
   }
 
-  preset = (data[10] == 7 || data[10] == 15) ? climate::CLIMATE_PRESET_BOOST : climate::CLIMATE_PRESET_NONE;
+  // Устанавливаем соответствующий preset на основе состояний
+  if (turbo_mode_) {
+    preset = climate::CLIMATE_PRESET_BOOST;
+  } else if (silent_mode_) {
+    preset = climate::CLIMATE_PRESET_ECO;
+  } else if (display_light_state_) {
+    preset = climate::CLIMATE_PRESET_COMFORT;
+  } else {
+    preset = climate::CLIMATE_PRESET_NONE;
+  }
 
   has_valid_state_ = true;
   publish_state();
@@ -172,22 +196,85 @@ void GreeClimate::control(const climate::ClimateCall &call) {
 
   if (new_mode == AC_MODE_DRY && new_fan_speed != AC_FAN_LOW) new_fan_speed = AC_FAN_LOW;
 
-  // управление температурой
+  // Управление температурой
   if (call.get_target_temperature().has_value()) {
     int temp = call.get_target_temperature().value();
     if (temp >= MIN_VALID_TEMPERATURE && temp <= MAX_VALID_TEMPERATURE)
       data_write_[TEMPERATURE] = (temp - MIN_VALID_TEMPERATURE) * 16;
   }
 
-  // встроенные флаги
-  if (display_light_state_) data_write_[10] |= 0x02; else data_write_[10] &= ~0x02;
-  if (silent_mode_)      data_write_[11] |= 0x01; else data_write_[11] &= ~0x01;
+  // Обработка пресетов для дополнительных функций
+  if (call.get_preset().has_value()) {
+    auto preset_value = call.get_preset().value();
+    
+    if (preset_value == climate::CLIMATE_PRESET_BOOST || 
+        preset_value == climate::CLIMATE_PRESET_ACTIVITY) {
+      // Турбо режим
+      turbo_mode_ = true;
+      silent_mode_ = false;
+      data_write_[10] = 7; // Код для турбо режима
+    } else if (preset_value == climate::CLIMATE_PRESET_ECO || 
+               preset_value == climate::CLIMATE_PRESET_SLEEP) {
+      // Тихий режим (отключение биппера)
+      silent_mode_ = true;
+      turbo_mode_ = false;
+      data_write_[11] |= 0x01; // Включить тихий режим
+    } else if (preset_value == climate::CLIMATE_PRESET_COMFORT) {
+      // Включить подсветку дисплея
+      display_light_state_ = true;
+      data_write_[10] |= 0x02;
+    } else if (preset_value == climate::CLIMATE_PRESET_NONE) {
+      // Выключить все дополнительные режимы
+      turbo_mode_ = false;
+      silent_mode_ = false;
+      display_light_state_ = false;
+      data_write_[10] = 2; // Нормальный режим
+      data_write_[11] &= ~0x01; // Выключить тихий режим
+    }
+  }
 
+  // Обработка пользовательских пресетов
+  if (call.get_custom_preset().has_value()) {
+    auto custom_preset = call.get_custom_preset().value();
+    
+    if (custom_preset == "TURBO") {
+      turbo_mode_ = true;
+      silent_mode_ = false;
+      data_write_[10] = 7;
+    } else if (custom_preset == "SILENT") {
+      silent_mode_ = true;
+      turbo_mode_ = false;
+      data_write_[11] |= 0x01;
+    } else if (custom_preset == "DISPLAY_LIGHT_ON") {
+      display_light_state_ = true;
+      data_write_[10] |= 0x02;
+    } else if (custom_preset == "DISPLAY_LIGHT_OFF") {
+      display_light_state_ = false;
+      data_write_[10] &= ~0x02;
+    }
+  }
+
+  // Применяем базовые настройки
   data_write_[MODE] = new_mode + new_fan_speed;
+  
+  // Устанавливаем флаги дисплея и тихого режима
+  if (display_light_state_) 
+    data_write_[10] |= 0x02; 
+  else 
+    data_write_[10] &= ~0x02;
+    
+  if (silent_mode_) 
+    data_write_[11] |= 0x01; 
+  else 
+    data_write_[11] &= ~0x01;
+
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
 
   data_write_[FORCE_UPDATE] = 0;
+  
+  // Обновляем состояние
+  publish_state();
 }
 
 void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
@@ -209,18 +296,6 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
   uint8_t sum = 0;
   for (int i = 2; i < size-1; i++) sum += message[i];
   return sum % 256;
-}
-
-void GreeClimate::set_display_light(bool state) {
-  display_light_state_ = state;
-  ESP_LOGI(TAG, "Display Light set to: %s", state ? "ON" : "OFF");
-  control(make_call());
-}
-
-void GreeClimate::set_silent_mode(bool state) {
-  silent_mode_ = state;
-  ESP_LOGI(TAG, "Silent Mode set to: %s", state ? "ON" : "OFF");
-  control(make_call());
 }
 
 }  // namespace gree
