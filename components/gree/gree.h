@@ -30,14 +30,14 @@ enum display_mode: uint8_t {
   DISPLAY_ON = 0x02
 };
 
-// ЗАМЕНА: Swing вместо Sound
-enum swing_mode: uint8_t {
+// ИСПРАВЛЕНО: Swing вместо Sound
+enum swing_mode_t: uint8_t {
   SWING_OFF = 0x60,  // Без swing
   SWING_ON = 0x10    // С swing
 };
 
 // ИСПРАВЛЕНО: Турбо режим для вашей модели
-enum turbo_mode: uint8_t {
+enum turbo_mode_t: uint8_t {
   TURBO_OFF = 0x0E,
   TURBO_ON = 0x0F
 };
@@ -70,12 +70,12 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   // Указатели на переключатели
   esphome::switch_::Switch *turbo_switch{nullptr};
-  esphome::switch_::Switch *swing_switch{nullptr};  // ЗАМЕНА: Swing вместо Sound
+  esphome::switch_::Switch *swing_switch{nullptr};
 
   // Переменные состояний
   display_mode display_state_{DISPLAY_OFF};
-  swing_mode swing_state_{SWING_OFF};  // ЗАМЕНА: Swing вместо Sound
-  turbo_mode turbo_state_{TURBO_OFF};
+  swing_mode_t swing_state_{SWING_OFF};  // ИСПРАВЛЕНО: swing_mode_t
+  turbo_mode_t turbo_state_{TURBO_OFF};  // ИСПРАВЛЕНО: turbo_mode_t
 
   // Сохранение температуры
   float saved_temperature{24.0f};
