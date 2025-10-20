@@ -216,23 +216,22 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     }
   }
 
-  // Устанавливаем флаги в пакет
+  // ВАЖНО: Сначала сбрасываем все флаги, потом устанавливаем нужные
+  data_write_[10] &= 0xFC; // Сбрасываем биты 0-1 байта 10 (дисплей и часть турбо)
+  data_write_[11] &= 0xFE; // Сбрасываем бит 0 байта 11 (звук)
+
+  // Устанавливаем флаги в пакет - ИСПРАВЛЕННАЯ ЛОГИКА
   if (display_state_ == DISPLAY_ON) {
-    data_write_[10] |= 0x02;
-  } else {
-    data_write_[10] &= ~0x02;
+    data_write_[10] |= 0x02; // Бит 1 = дисплей включен
   }
 
-  // Флаг звука - ИСПРАВЛЕНО
   if (sound_state_ == SOUND_OFF) {
-    data_write_[11] |= 0x01;  // Звук выключен
-  } else {
-    data_write_[11] &= ~0x01; // Звук включен
+    data_write_[11] |= 0x01;  // Бит 0 = звук выключен
   }
 
-  // Турбо режим
+  // Турбо режим ПЕРЕЗАПИСЫВАЕТ байт 10
   if (turbo_state_ == TURBO_ON) {
-    data_write_[10] = 7; // Турбо режим
+    data_write_[10] = 7; // Турбо режим (перезаписывает весь байт)
   }
 
   data_write_[MODE] = new_mode | new_fan_speed;
