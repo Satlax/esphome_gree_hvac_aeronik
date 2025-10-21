@@ -60,7 +60,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   
   void set_display(bool state);
   void set_turbo(bool state);
-  void set_swing_mode(uint8_t swing_mode);
 
  protected:
   climate::ClimateTraits traits() override;
