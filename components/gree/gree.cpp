@@ -7,19 +7,17 @@ namespace gree {
 
 static const char *const TAG = "gree";
 
-// Байтовые позиции
 static const uint8_t FORCE_UPDATE = 7;
 static const uint8_t MODE = 8;
 static const uint8_t MODE_MASK = 0b11110000;
 static const uint8_t FAN_MASK = 0b00001111;
 static const uint8_t SWING = 12;
-static const uint8_t DISPLAY = 13; // Позиция байта дисплея
-static const uint8_t TURBO = 10; // Позиция байта турбо
+static const uint8_t DISPLAY = 13;
+static const uint8_t TURBO = 10;
 static const uint8_t CRC_WRITE = 46;
 static const uint8_t TEMPERATURE = 9;
 static const uint8_t INDOOR_TEMPERATURE = 46;
 
-// Настройки компонента
 static const uint8_t MIN_VALID_TEMPERATURE = 16;
 static const uint8_t MAX_VALID_TEMPERATURE = 30;
 static const uint8_t TEMPERATURE_STEP = 1;
@@ -93,13 +91,13 @@ climate::ClimateTraits GreeClimate::traits() {
       climate::CLIMATE_FAN_HIGH
   });
 
-  // Добавляем свинг как поддерживаемые пресеты
   traits.set_supported_presets({
-    climate::CLIMATE_PRESET_NONE,
-    climate::CLIMATE_PRESET_SWING_FULL,
-    climate::CLIMATE_PRESET_SWING_TOP, 
-    climate::CLIMATE_PRESET_SWING_MIDDLE,
-    climate::CLIMATE_PRESET_SWING_BOTTOM
+    "None",
+    "Boost", 
+    "Swing Full",
+    "Swing Top",
+    "Swing Middle",
+    "Swing Bottom"
   });
 
   traits.set_supports_current_temperature(true);
@@ -125,36 +123,33 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   this->target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
   this->current_temperature = data[INDOOR_TEMPERATURE] - 40;
 
-  // Сохраняем текущее состояние
   data_write_[MODE] = data[MODE];
   data_write_[TEMPERATURE] = data[TEMPERATURE];
   
-  // Обновляем состояние дисплея из ответа AC
   display_state_ = (data[DISPLAY] == 0x20);
   
-  // Обновляем состояние турбо из ответа AC
   turbo_state_ = (data[TURBO] == 0x07 || data[TURBO] == 0x0F);
   
-  // Обновляем состояние свинга из ответа AC и устанавливаем соответствующий пресет
   uint8_t swing_byte = data[SWING];
-  if (swing_byte == 0x10) {
+  if (data[TURBO] == 0x07 || data[TURBO] == 0x0F) {
+    this->preset = "Boost";
+  } else if (swing_byte == 0x10) {
     swing_mode_ = AC_SWING_FULL;
-    this->preset = climate::CLIMATE_PRESET_SWING_FULL;
+    this->preset = "Swing Full";
   } else if (swing_byte == 0x20) {
     swing_mode_ = AC_SWING_TOP;
-    this->preset = climate::CLIMATE_PRESET_SWING_TOP;
+    this->preset = "Swing Top";
   } else if (swing_byte == 0x40) {
     swing_mode_ = AC_SWING_MIDDLE;
-    this->preset = climate::CLIMATE_PRESET_SWING_MIDDLE;
+    this->preset = "Swing Middle";
   } else if (swing_byte == 0x60) {
     swing_mode_ = AC_SWING_BOTTOM;
-    this->preset = climate::CLIMATE_PRESET_SWING_BOTTOM;
+    this->preset = "Swing Bottom";
   } else {
     swing_mode_ = AC_SWING_OFF;
-    this->preset = climate::CLIMATE_PRESET_NONE;
+    this->preset = "None";
   }
 
-  // Обновляем режим CLIMATE
   switch (data[MODE] & MODE_MASK) {
     case AC_MODE_OFF:
       this->mode = climate::CLIMATE_MODE_OFF;
@@ -178,7 +173,6 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
       ESP_LOGW(TAG, "Unknown AC MODE&fan: %s", data[MODE]);
   }
 
-  // Обновляем скорость вентилятора
   switch (data[MODE] & FAN_MASK) {
     case AC_FAN_AUTO:
       this->fan_mode = climate::CLIMATE_FAN_AUTO;
@@ -202,29 +196,25 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
 void GreeClimate::control(const climate::ClimateCall &call) {
   data_write_[FORCE_UPDATE] = 175;
   
-  // Устанавливаем состояние дисплея из сохраненного значения
   data_write_[DISPLAY] = display_state_ ? 0x20 : 0x00;
   
-  // Устанавливаем состояние турбо из сохраненного значения
+  uint8_t current_mode = data_write_[MODE] & MODE_MASK;
   if (turbo_state_) {
-    uint8_t current_mode = data_write_[MODE] & MODE_MASK;
     if (current_mode == AC_MODE_COOL) {
       data_write_[TURBO] = 0x07;
     } else if (current_mode == AC_MODE_HEAT) {
       data_write_[TURBO] = 0x0F;
     }
   } else {
-    uint8_t current_mode = data_write_[MODE] & MODE_MASK;
     if (current_mode == AC_MODE_COOL) {
       data_write_[TURBO] = 0x06;
     } else if (current_mode == AC_MODE_HEAT) {
       data_write_[TURBO] = 0x0E;
     } else {
-      data_write_[TURBO] = 0x02; // значение по умолчанию для других режимов
+      data_write_[TURBO] = 0x02;
     }
   }
   
-  // Устанавливаем режим свинга из сохраненного значения
   data_write_[SWING] = swing_mode_;
 
   uint8_t new_mode = data_write_[MODE] & MODE_MASK;
@@ -281,28 +271,46 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     new_fan_speed = AC_FAN_LOW;
   }
 
-  // Обработка пресетов (свинг)
   if (call.get_preset().has_value()) {
-    switch (call.get_preset().value()) {
-      case climate::CLIMATE_PRESET_NONE:
-        swing_mode_ = AC_SWING_OFF;
-        break;
-      case climate::CLIMATE_PRESET_SWING_FULL:
-        swing_mode_ = AC_SWING_FULL;
-        break;
-      case climate::CLIMATE_PRESET_SWING_TOP:
-        swing_mode_ = AC_SWING_TOP;
-        break;
-      case climate::CLIMATE_PRESET_SWING_MIDDLE:
-        swing_mode_ = AC_SWING_MIDDLE;
-        break;
-      case climate::CLIMATE_PRESET_SWING_BOTTOM:
-        swing_mode_ = AC_SWING_BOTTOM;
-        break;
-      default:
-        break;
+    std::string preset = call.get_preset().value();
+    
+    if (preset == "None") {
+      swing_mode_ = AC_SWING_OFF;
+      turbo_state_ = false;
+    } else if (preset == "Boost") {
+      turbo_state_ = true;
+    } else if (preset == "Swing Full") {
+      swing_mode_ = AC_SWING_FULL;
+      turbo_state_ = false;
+    } else if (preset == "Swing Top") {
+      swing_mode_ = AC_SWING_TOP;
+      turbo_state_ = false;
+    } else if (preset == "Swing Middle") {
+      swing_mode_ = AC_SWING_MIDDLE;
+      turbo_state_ = false;
+    } else if (preset == "Swing Bottom") {
+      swing_mode_ = AC_SWING_BOTTOM;
+      turbo_state_ = false;
     }
+    
     data_write_[SWING] = swing_mode_;
+    
+    current_mode = data_write_[MODE] & MODE_MASK;
+    if (turbo_state_) {
+      if (current_mode == AC_MODE_COOL) {
+        data_write_[TURBO] = 0x07;
+      } else if (current_mode == AC_MODE_HEAT) {
+        data_write_[TURBO] = 0x0F;
+      }
+    } else {
+      if (current_mode == AC_MODE_COOL) {
+        data_write_[TURBO] = 0x06;
+      } else if (current_mode == AC_MODE_HEAT) {
+        data_write_[TURBO] = 0x0E;
+      } else {
+        data_write_[TURBO] = 0x02;
+      }
+    }
   }
 
   if (call.get_target_temperature().has_value()) {
@@ -318,12 +326,10 @@ void GreeClimate::control(const climate::ClimateCall &call) {
   data_write_[FORCE_UPDATE] = 0;
 }
 
-// Новые методы для управления дисплеем, турбо и свингом
 void GreeClimate::set_display(bool state) {
   display_state_ = state;
   data_write_[DISPLAY] = state ? 0x20 : 0x00;
   
-  // Отправляем команду немедленно
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
 }
@@ -331,7 +337,6 @@ void GreeClimate::set_display(bool state) {
 void GreeClimate::set_turbo(bool state) {
   turbo_state_ = state;
   
-  // Устанавливаем значение турбо в зависимости от текущего режима
   uint8_t current_mode = data_write_[MODE] & MODE_MASK;
   if (state) {
     if (current_mode == AC_MODE_COOL) {
@@ -349,7 +354,6 @@ void GreeClimate::set_turbo(bool state) {
     }
   }
   
-  // Отправляем команду немедленно
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
 }
@@ -358,7 +362,6 @@ void GreeClimate::set_swing_mode(uint8_t swing_mode) {
   swing_mode_ = swing_mode;
   data_write_[SWING] = swing_mode_;
   
-  // Отправляем команду немедленно
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
 }
