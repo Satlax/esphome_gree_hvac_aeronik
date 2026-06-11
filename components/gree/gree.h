@@ -25,20 +25,10 @@ enum ac_fan: uint8_t {
   AC_FAN_HIGH = 0x03
 };
 
-// Восстановлены оригинальные значения качалок (Swing) из протокола Gree
-enum ac_swing: uint8_t {
-  AC_SWING_OFF = 0x44,
-  AC_SWING_VERTICAL = 0x14,
-  AC_SWING_HORIZONTAL = 0x41,
-  AC_SWING_BOTH = 0x11
-};
-
 #define GREE_START_BYTE 0x7E
 #define GREE_RX_BUFFER_SIZE 52
 
-union gree_start_bytes_t {
-    uint8_t u8x2[2];
-};
+union gree_start_bytes_t { uint8_t u8x2[2]; };
 
 struct gree_header_t {
   gree_start_bytes_t start_bytes;
@@ -47,7 +37,7 @@ struct gree_header_t {
 
 struct gree_raw_packet_t {
   gree_header_t header;
-  uint8_t data[1]; // first data byte
+  uint8_t data[1];
 };
 
 class GreeClimate : public climate::Climate, public uart::UARTDevice, public PollingComponent {
@@ -59,11 +49,9 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   void set_supported_presets(const std::set<climate::ClimatePreset> &presets) { this->supported_presets_ = presets; }
 
-  // Методы для свитчей из YAML
   void set_display(bool state);
   void set_turbo(bool state);
   
-  // Добавлены геттеры, которых не хватало для компиляции YAML
   bool get_display_state() const { return this->display_state_; }
   bool get_turbo_state() const { return this->turbo_state_; }
 
@@ -79,7 +67,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   static const uint8_t MODE = 8;
   static const uint8_t MODE_MASK = 0b11110000;
   static const uint8_t FAN_MASK = 0b00001111;
-  static const uint8_t SWING = 12;
   static const uint8_t CRC_WRITE = 46;
   static const uint8_t TEMPERATURE = 9;
   static const uint8_t INDOOR_TEMPERATURE = 46;
@@ -98,8 +85,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
 
   bool receiving_packet_ = false;
-  
-  // Состояния для свитчей
   bool display_state_ = true;
   bool turbo_state_ = false;
 
