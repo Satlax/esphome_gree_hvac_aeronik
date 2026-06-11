@@ -78,7 +78,6 @@ climate::ClimateTraits GreeClimate::traits() {
 
   traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
 
-  // ИСПРАВЛЕННЫЙ БЛОК ДОБАВЛЕНИЯ ПРЕСЕТОВ
   for (auto preset : this->supported_presets_) {
     traits.add_supported_preset(preset);
   }
@@ -96,8 +95,6 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     return;
   }
 
-  // ИСПРАВЛЕНО: Проверяем длину пакета (байт 2), а не data[3]!
-  // Допустимые длины ответа: 47 (0x2F) или 49 (0x31)
   if (data[2] != 47 && data[2] != 49) {
     ESP_LOGW(TAG, "Invalid packet length: %d", data[2]);
     return;
@@ -106,6 +103,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   this->target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
   this->current_temperature = data[INDOOR_TEMPERATURE] - 40;
 
+  // Sync current state to write buffer
   data_write_[MODE] = data[MODE];
   data_write_[TEMPERATURE] = data[TEMPERATURE];
   data_write_[10] = data[10]; // Sync Turbo state
@@ -129,7 +127,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     default: ESP_LOGW(TAG, "Unknown AC fan: %02X", data[MODE]);
   }
 
-  // ИСПРАВЛЕНО: Возвращаем оригинальную логику Turbo (Boost) через байт 10
+  // Turbo (Boost) detection via byte 10
   switch (data[10]) {
     case 7:  // COOL TURBO
     case 15: // HEAT TURBO
@@ -142,12 +140,14 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
       break;
   }
 
+  // Display state detection via byte 13
+  this->display_state_ = (data[13] & 0x20) != 0;
+
   this->publish_state();
 }
 
 void GreeClimate::control(const climate::ClimateCall &call) {
   data_write_[FORCE_UPDATE] = 175;
-  data_write_[13] = 0x20; 
 
   uint8_t new_mode = data_write_[MODE] & MODE_MASK;
   uint8_t new_fan_speed = data_write_[MODE] & FAN_MASK;
@@ -159,7 +159,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       case climate::CLIMATE_MODE_COOL: new_mode = AC_MODE_COOL; break;
       case climate::CLIMATE_MODE_DRY: 
         new_mode = AC_MODE_DRY;
-        new_fan_speed = AC_FAN_LOW; // В режиме Dry только низкая скорость
+        new_fan_speed = AC_FAN_LOW;
         break;
       case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
       case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
@@ -181,7 +181,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     new_fan_speed = AC_FAN_LOW;
   }
 
-  // ИСПРАВЛЕНО: Возвращаем управление Turbo (Boost) через байт 10
+  // Turbo (Boost) control via byte 10
   if (call.get_preset().has_value()) {
     switch (call.get_preset().value()) {
       case climate::CLIMATE_PRESET_NONE:
@@ -237,6 +237,9 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
 
 void GreeClimate::set_display(bool state) {
   this->display_state_ = state;
+  
+  data_write_[FORCE_UPDATE] = 175;
+  
   if (state)
     data_write_[13] = data_write_[13] | 0x20;
   else
@@ -244,10 +247,15 @@ void GreeClimate::set_display(bool state) {
 
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
+  
+  data_write_[FORCE_UPDATE] = 0;
 }
 
 void GreeClimate::set_turbo(bool state) {
   this->turbo_state_ = state;
+  
+  data_write_[FORCE_UPDATE] = 175;
+  
   uint8_t mode_only = data_write_[MODE] & MODE_MASK;
   if (mode_only == AC_MODE_COOL) {
     data_write_[10] = state ? 7 : 6;
@@ -256,8 +264,11 @@ void GreeClimate::set_turbo(bool state) {
   } else {
     data_write_[10] = state ? 7 : 6;
   }
+  
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
+  
+  data_write_[FORCE_UPDATE] = 0;
 }
 
 }  // namespace gree
