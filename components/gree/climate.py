@@ -19,7 +19,6 @@ ALLOWED_CLIMATE_PRESETS = {
 }
 validate_presets = cv.enum(ALLOWED_CLIMATE_PRESETS, upper=True)
 
-# Возвращаем _CLIMATE_SCHEMA (с подчеркиванием), как требует ESPHome 2026.5.3
 CONFIG_SCHEMA = (
     climate._CLIMATE_SCHEMA.extend(
         {
