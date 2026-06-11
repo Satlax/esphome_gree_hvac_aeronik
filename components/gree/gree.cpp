@@ -17,9 +17,11 @@ void GreeClimate::dump_config() {
 void GreeClimate::loop() {
   gree_raw_packet_t *raw_packet = (gree_raw_packet_t *)this->data_read_;
 
+  // ИСПРАВЛЕНО: Добавлен yield() для предотвращения Soft WDT
   while (!receiving_packet_ && this->available() >= sizeof(gree_header_t)) {
     if (this->peek() != GREE_START_BYTE) {
       this->read();
+      yield(); // <-- ДОБАВЛЕНО: Даем процессору передышку
       continue;
     }
 
@@ -35,6 +37,8 @@ void GreeClimate::loop() {
         memset(this->data_read_, 0, GREE_RX_BUFFER_SIZE);
       }
     }
+    
+    yield(); // <-- ДОБАВЛЕНО: Еще одна передышка после обработки заголовка
   }
 
   if (receiving_packet_ && this->available() >= raw_packet->header.data_length) {
@@ -42,7 +46,6 @@ void GreeClimate::loop() {
 
     uint8_t total_size = raw_packet->header.data_length + sizeof(gree_header_t);
     
-    // ЗАЩИТА: Не обрабатываем и не дампим некорректные размеры
     if (total_size > 0 && total_size <= GREE_RX_BUFFER_SIZE) {
       dump_message_("Read array", this->data_read_, total_size);
       read_state_(this->data_read_, total_size);
@@ -94,7 +97,6 @@ climate::ClimateTraits GreeClimate::traits() {
 }
 
 void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
-  // ЗАЩИТА: Если размер меньше минимально возможного, игнорируем
   if (size < 3) {
     ESP_LOGW(TAG, "Packet too small for processing: %d", size);
     return;
@@ -116,12 +118,11 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   this->target_temperature = data[9] / 16 + MIN_VALID_TEMPERATURE;
   this->current_temperature = data[46] - 40;
 
-  // Синхронизируем важные байты
-  data_write_[8] = data[8];   // MODE
-  data_write_[9] = data[9];   // TEMPERATURE
-  data_write_[10] = data[10]; // TURBO & DISPLAY
-  data_write_[12] = data[12]; // SWING
-  data_write_[13] = data[13]; // Доп. настройки
+  data_write_[8] = data[8];
+  data_write_[9] = data[9];
+  data_write_[10] = data[10];
+  data_write_[12] = data[12];
+  data_write_[13] = data[13];
 
   switch (data[8] & 0b11110000) {
     case 0x10: 
@@ -143,21 +144,19 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     default: ESP_LOGW(TAG, "Unknown AC fan: %02X", data[8]);
   }
 
-  // Определение состояния Turbo (байт 10, значения 7 или 15)
   if (data[10] == 7 || data[10] == 15) {
     this->turbo_state_ = true;
   } else {
     this->turbo_state_ = false;
   }
 
-  // Определение состояния Display (байт 10, бит 0x02)
   this->display_state_ = (data[10] & 0x02) != 0;
 
   this->publish_state();
 }
 
 void GreeClimate::control(const climate::ClimateCall &call) {
-  data_write_[7] = 175; // FORCE_UPDATE
+  data_write_[7] = 175;
 
   uint8_t new_mode = data_write_[8] & 0b11110000;
   uint8_t new_fan_speed = data_write_[8] & 0b00001111;
@@ -210,7 +209,6 @@ void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
 }
 
 void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8_t size) {
-  // ЗАЩИТА: Предотвращаем переполнение буфера str[250] при поврежденных данных
   if (size == 0 || size > GREE_RX_BUFFER_SIZE) {
     ESP_LOGW(TAG, "Invalid size for dump: %d", size);
     return;
@@ -227,7 +225,6 @@ void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8
 }
 
 uint8_t GreeClimate::get_checksum_(const uint8_t *message, uint8_t size) {
-  // ЗАЩИТА: Предотвращаем underflow (size - 1), если size < 3
   if (size < 3) {
     return 0;
   }
@@ -242,7 +239,7 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, uint8_t size) {
 
 void GreeClimate::set_display(bool state) {
   this->display_state_ = state;
-  data_write_[7] = 175; // FORCE_UPDATE
+  data_write_[7] = 175;
   
   if (state)
     data_write_[10] = data_write_[10] | 0x02;
@@ -257,7 +254,7 @@ void GreeClimate::set_display(bool state) {
 
 void GreeClimate::set_turbo(bool state) {
   this->turbo_state_ = state;
-  data_write_[7] = 175; // FORCE_UPDATE
+  data_write_[7] = 175;
   
   uint8_t mode_only = data_write_[8] & 0b11110000;
   uint8_t base_val = 6;
