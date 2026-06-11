@@ -100,115 +100,96 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     return;
   }
 
-  this->target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
-  this->current_temperature = data[INDOOR_TEMPERATURE] - 40;
+  this->target_temperature = data[9] / 16 + MIN_VALID_TEMPERATURE;
+  this->current_temperature = data[46] - 40;
 
-  // Sync current state to write buffer
-  data_write_[MODE] = data[MODE];
-  data_write_[TEMPERATURE] = data[TEMPERATURE];
-  data_write_[10] = data[10]; // Sync Turbo state
-  data_write_[13] = data[13]; // Sync Display state
+  // Синхронизируем важные байты, чтобы не сбрасывать их при отправке команд
+  data_write_[8] = data[8];  // MODE
+  data_write_[9] = data[9];  // TEMPERATURE
+  data_write_[10] = data[10]; // TURBO
+  data_write_[12] = data[12]; // SWING (просто сохраняем, не мапим на пресеты)
+  data_write_[13] = data[13]; // DISPLAY
 
-  switch (data[MODE] & MODE_MASK) {
-    case AC_MODE_OFF: this->mode = climate::CLIMATE_MODE_OFF; break;
-    case AC_MODE_AUTO: this->mode = climate::CLIMATE_MODE_AUTO; break;
-    case AC_MODE_COOL: this->mode = climate::CLIMATE_MODE_COOL; break;
-    case AC_MODE_DRY: this->mode = climate::CLIMATE_MODE_DRY; break;
-    case AC_MODE_FANONLY: this->mode = climate::CLIMATE_MODE_FAN_ONLY; break;
-    case AC_MODE_HEAT: this->mode = climate::CLIMATE_MODE_HEAT; break;
-    default: ESP_LOGW(TAG, "Unknown AC MODE&fan: %02X", data[MODE]);
+  // Исправлено: добавлен case 0x00 для корректной обработки выключенного состояния
+  switch (data[8] & 0b11110000) {
+    case 0x10: 
+    case 0x00: 
+      this->mode = climate::CLIMATE_MODE_OFF; break;
+    case 0x80: this->mode = climate::CLIMATE_MODE_AUTO; break;
+    case 0x90: this->mode = climate::CLIMATE_MODE_COOL; break;
+    case 0xA0: this->mode = climate::CLIMATE_MODE_DRY; break;
+    case 0xB0: this->mode = climate::CLIMATE_MODE_FAN_ONLY; break;
+    case 0xC0: this->mode = climate::CLIMATE_MODE_HEAT; break;
+    default: ESP_LOGW(TAG, "Unknown AC MODE: %02X", data[8]);
   }
 
-  switch (data[MODE] & FAN_MASK) {
-    case AC_FAN_AUTO: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
-    case AC_FAN_LOW: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
-    case AC_FAN_MEDIUM: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
-    case AC_FAN_HIGH: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
-    default: ESP_LOGW(TAG, "Unknown AC fan: %02X", data[MODE]);
+  switch (data[8] & 0b00001111) {
+    case 0x00: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+    case 0x01: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
+    case 0x02: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
+    case 0x03: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
+    default: ESP_LOGW(TAG, "Unknown AC fan: %02X", data[8]);
   }
 
-  // Turbo (Boost) detection via byte 10
-  switch (data[10]) {
-    case 7:  // COOL TURBO
-    case 15: // HEAT TURBO
-      this->preset = climate::CLIMATE_PRESET_BOOST;
-      this->turbo_state_ = true;
-      break;
-    default:
-      this->preset = climate::CLIMATE_PRESET_NONE;
-      this->turbo_state_ = false;
-      break;
+  // Определение состояния Turbo (байт 10)
+  if (data[10] == 7 || data[10] == 15) {
+    this->turbo_state_ = true;
+  } else {
+    this->turbo_state_ = false;
   }
 
-  // Display state detection via byte 13
+  // Определение состояния Display (байт 13, бит 0x20)
   this->display_state_ = (data[13] & 0x20) != 0;
 
   this->publish_state();
 }
 
 void GreeClimate::control(const climate::ClimateCall &call) {
-  data_write_[FORCE_UPDATE] = 175;
+  data_write_[7] = 175; // FORCE_UPDATE
 
-  uint8_t new_mode = data_write_[MODE] & MODE_MASK;
-  uint8_t new_fan_speed = data_write_[MODE] & FAN_MASK;
+  uint8_t new_mode = data_write_[8] & 0b11110000;
+  uint8_t new_fan_speed = data_write_[8] & 0b00001111;
 
   if (call.get_mode().has_value()) {
     switch (call.get_mode().value()) {
-      case climate::CLIMATE_MODE_OFF: new_mode = AC_MODE_OFF; break;
-      case climate::CLIMATE_MODE_AUTO: new_mode = AC_MODE_AUTO; break;
-      case climate::CLIMATE_MODE_COOL: new_mode = AC_MODE_COOL; break;
+      case climate::CLIMATE_MODE_OFF: new_mode = 0x10; break;
+      case climate::CLIMATE_MODE_AUTO: new_mode = 0x80; break;
+      case climate::CLIMATE_MODE_COOL: new_mode = 0x90; break;
       case climate::CLIMATE_MODE_DRY: 
-        new_mode = AC_MODE_DRY;
-        new_fan_speed = AC_FAN_LOW;
+        new_mode = 0xA0;
+        new_fan_speed = 0x01; // В режиме Dry только низкая скорость
         break;
-      case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
-      case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
+      case climate::CLIMATE_MODE_FAN_ONLY: new_mode = 0xB0; break;
+      case climate::CLIMATE_MODE_HEAT: new_mode = 0xC0; break;
       default: ESP_LOGW(TAG, "Setting of unsupported MODE: %d", (int)call.get_mode().value()); break;
     }
   }
 
   if (call.get_fan_mode().has_value()) {
     switch (call.get_fan_mode().value()) {
-      case climate::CLIMATE_FAN_AUTO: new_fan_speed = AC_FAN_AUTO; break;
-      case climate::CLIMATE_FAN_LOW: new_fan_speed = AC_FAN_LOW; break;
-      case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = AC_FAN_MEDIUM; break;
-      case climate::CLIMATE_FAN_HIGH: new_fan_speed = AC_FAN_HIGH; break;
+      case climate::CLIMATE_FAN_AUTO: new_fan_speed = 0x00; break;
+      case climate::CLIMATE_FAN_LOW: new_fan_speed = 0x01; break;
+      case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = 0x02; break;
+      case climate::CLIMATE_FAN_HIGH: new_fan_speed = 0x03; break;
       default: ESP_LOGW(TAG, "Setting of unsupported FANSPEED: %d", (int)call.get_fan_mode().value()); break;
     }
   }
 
-  if (new_mode == AC_MODE_DRY && new_fan_speed != AC_FAN_LOW) {
-    new_fan_speed = AC_FAN_LOW;
-  }
-
-  // Turbo (Boost) control via byte 10
-  if (call.get_preset().has_value()) {
-    switch (call.get_preset().value()) {
-      case climate::CLIMATE_PRESET_NONE:
-        if (new_mode == AC_MODE_COOL) data_write_[10] = 6;
-        else if (new_mode == AC_MODE_HEAT) data_write_[10] = 14;
-        this->turbo_state_ = false;
-        break;
-      case climate::CLIMATE_PRESET_BOOST:
-        if (new_mode == AC_MODE_COOL) data_write_[10] = 7;
-        else if (new_mode == AC_MODE_HEAT) data_write_[10] = 15;
-        this->turbo_state_ = true;
-        break;
-      default: break;
-    }
+  if (new_mode == 0xA0 && new_fan_speed != 0x01) {
+    new_fan_speed = 0x01;
   }
 
   if (call.get_target_temperature().has_value()) {
     if (call.get_target_temperature().value() >= MIN_VALID_TEMPERATURE && call.get_target_temperature().value() <= MAX_VALID_TEMPERATURE)
-      data_write_[TEMPERATURE] = (call.get_target_temperature().value() - MIN_VALID_TEMPERATURE) * 16;
+      data_write_[9] = (call.get_target_temperature().value() - MIN_VALID_TEMPERATURE) * 16;
   }
 
-  data_write_[MODE] = new_mode + new_fan_speed;
+  data_write_[8] = new_mode + new_fan_speed;
 
-  data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
+  data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
 
-  data_write_[FORCE_UPDATE] = 0;
+  data_write_[7] = 0; // Сброс FORCE_UPDATE
 }
 
 void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
@@ -237,38 +218,36 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
 
 void GreeClimate::set_display(bool state) {
   this->display_state_ = state;
-  
-  data_write_[FORCE_UPDATE] = 175;
+  data_write_[7] = 175; // FORCE_UPDATE
   
   if (state)
     data_write_[13] = data_write_[13] | 0x20;
   else
     data_write_[13] = data_write_[13] & (~0x20);
 
-  data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
+  data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
   
-  data_write_[FORCE_UPDATE] = 0;
+  data_write_[7] = 0;
 }
 
 void GreeClimate::set_turbo(bool state) {
   this->turbo_state_ = state;
+  data_write_[7] = 175; // FORCE_UPDATE
   
-  data_write_[FORCE_UPDATE] = 175;
-  
-  uint8_t mode_only = data_write_[MODE] & MODE_MASK;
-  if (mode_only == AC_MODE_COOL) {
+  uint8_t mode_only = data_write_[8] & 0b11110000;
+  if (mode_only == 0x90) { // COOL
     data_write_[10] = state ? 7 : 6;
-  } else if (mode_only == AC_MODE_HEAT) {
+  } else if (mode_only == 0xC0) { // HEAT
     data_write_[10] = state ? 15 : 14;
   } else {
     data_write_[10] = state ? 7 : 6;
   }
   
-  data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
+  data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
   
-  data_write_[FORCE_UPDATE] = 0;
+  data_write_[7] = 0;
 }
 
 }  // namespace gree
