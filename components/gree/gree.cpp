@@ -1,22 +1,64 @@
+#include <cmath>
 #include "gree.h"
-#include "esphome/core/log.h"
+#include "esphome/core/macros.h"
 
 namespace esphome {
 namespace gree {
 
-static const char *TAG = "gree";
+static const char *const TAG = "gree";
 
 void GreeClimate::dump_config() {
-  ESP_LOGCONFIG(TAG, "Gree climate loaded");
-  ESP_LOGCONFIG(TAG, "  Update interval: %u ms", this->get_update_interval());
+  ESP_LOGCONFIG(TAG, "Gree:");
+  ESP_LOGCONFIG(TAG, "  Update interval: %u", this->get_update_interval());
+  this->dump_traits_(TAG);
   this->check_uart_settings(4800, 1, uart::UART_CONFIG_PARITY_EVEN, 8);
+}
+
+void GreeClimate::loop() {
+  gree_raw_packet_t *raw_packet = (gree_raw_packet_t *)this->data_read_;
+
+  while (!receiving_packet_ && this->available() >= sizeof(gree_header_t)) {
+    if (this->peek() != GREE_START_BYTE) {
+      this->read();
+      continue;
+    }
+
+    this->read_array(this->data_read_, sizeof(gree_start_bytes_t));
+    receiving_packet_ = (raw_packet->header.start_bytes.u8x2[1] == GREE_START_BYTE);
+
+    if (receiving_packet_) {
+      this->read_byte(&raw_packet->header.data_length);
+
+      if (raw_packet->header.data_length + sizeof(gree_header_t) > GREE_RX_BUFFER_SIZE) {
+        ESP_LOGE(TAG, "Incoming packet is too big! header.data_length = %d, maximum is %d", raw_packet->header.data_length, GREE_RX_BUFFER_SIZE - sizeof(gree_header_t));
+        receiving_packet_ = false;
+        memset(this->data_read_, 0, GREE_RX_BUFFER_SIZE);
+      }
+    }
+  }
+
+  if (receiving_packet_ && this->available() >= raw_packet->header.data_length) {
+    this->read_array(raw_packet->data, raw_packet->header.data_length);
+
+    dump_message_("Read array", this->data_read_, raw_packet->header.data_length + sizeof(gree_header_t));
+    read_state_(this->data_read_, raw_packet->header.data_length + sizeof(gree_header_t));
+
+    receiving_packet_ = false;
+    memset(this->data_read_, 0, GREE_RX_BUFFER_SIZE);
+  }
+}
+
+void GreeClimate::update() {
+  data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
+  send_data_(data_write_, sizeof(data_write_));
 }
 
 climate::ClimateTraits GreeClimate::traits() {
   auto traits = climate::ClimateTraits();
-  traits.set_visual_min_temperature(MIN_TEMP);
-  traits.set_visual_max_temperature(MAX_TEMP);
-  traits.set_visual_temperature_step(1.0f);
+
+  traits.set_visual_min_temperature(MIN_VALID_TEMPERATURE);
+  traits.set_visual_max_temperature(MAX_VALID_TEMPERATURE);
+  traits.set_visual_temperature_step(TEMPERATURE_STEP);
 
   traits.set_supported_modes({
     climate::CLIMATE_MODE_OFF,
@@ -28,164 +70,190 @@ climate::ClimateTraits GreeClimate::traits() {
   });
 
   traits.set_supported_fan_modes({
-    climate::CLIMATE_FAN_AUTO,
-    climate::CLIMATE_FAN_LOW,
-    climate::CLIMATE_FAN_MEDIUM,
-    climate::CLIMATE_FAN_HIGH
+      climate::CLIMATE_FAN_AUTO,
+      climate::CLIMATE_FAN_LOW,
+      climate::CLIMATE_FAN_MEDIUM,
+      climate::CLIMATE_FAN_HIGH
   });
 
+  // Актуальный способ для новых версий ESPHome
   traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
 
-  for (auto preset : supported_presets_)
-    traits.add_supported_preset(preset);
+  traits.set_supported_presets(this->supported_presets_);
   traits.add_supported_preset(climate::CLIMATE_PRESET_NONE);
 
   return traits;
 }
 
-void GreeClimate::loop() {
-  yield();  // сброс WDT
-
-  gree_raw_packet_t *raw = (gree_raw_packet_t *) this->data_read_;
-
-  while (!receiving_packet_ && this->available() >= sizeof(gree_header_t)) {
-    if (this->peek() != GREE_START_BYTE) {
-      this->read();
-      continue;
-    }
-    this->read_array(this->data_read_, sizeof(gree_header_t));
-    receiving_packet_ = true;
-    last_rx_time_ = millis();
-  }
-
-  if (receiving_packet_) {
-    if (this->available() >= raw->header.data_length) {
-      this->read_array(raw->data, raw->header.data_length);
-      size_t total_size = raw->header.data_length + sizeof(gree_header_t);
-      read_state_(this->data_read_, total_size);
-      receiving_packet_ = false;
-    } else if (millis() - last_rx_time_ > 500) {
-      ESP_LOGW(TAG, "Packet reception timeout");
-      receiving_packet_ = false;
-      memset(this->data_read_, 0, GREE_RX_BUFFER_SIZE);
-    }
-  }
-}
-
 void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
-  if (size < INDOOR_TEMPERATURE + 1) {
-    ESP_LOGW(TAG, "Packet too short: %d bytes", size);
+  uint8_t data_crc = data[size-1];
+  uint8_t get_crc = get_checksum_(data, size);
+
+  if (data_crc != get_crc) {
+    ESP_LOGW(TAG, "Invalid checksum.");
     return;
   }
 
-  if (data[size - 1] != get_checksum_(data, size))
+  // ИСПРАВЛЕНО: Проверяем длину пакета (байт 2), а не data[3]!
+  // Допустимые длины ответа: 47 (0x2F) или 49 (0x31)
+  if (data[2] != 47 && data[2] != 49) {
+    ESP_LOGW(TAG, "Invalid packet length: %d", data[2]);
     return;
-  if (data[3] != 49)
-    return;
+  }
 
-  this->target_temperature = data[TEMPERATURE] / 16 + MIN_TEMP;
+  this->target_temperature = data[TEMPERATURE] / 16 + MIN_VALID_TEMPERATURE;
+  this->current_temperature = data[INDOOR_TEMPERATURE] - 40;
 
-  int indoor = data[INDOOR_TEMPERATURE];
-  if (indoor >= 40)
-    this->current_temperature = indoor - 40;
-  else
-    this->current_temperature = 0;
+  data_write_[MODE] = data[MODE];
+  data_write_[TEMPERATURE] = data[TEMPERATURE];
 
-  uint8_t mode_byte = data[MODE];
-  switch (mode_byte & MODE_MASK) {
-    case AC_MODE_OFF:  this->mode = climate::CLIMATE_MODE_OFF; break;
+  switch (data[MODE] & MODE_MASK) {
+    case AC_MODE_OFF: this->mode = climate::CLIMATE_MODE_OFF; break;
     case AC_MODE_AUTO: this->mode = climate::CLIMATE_MODE_AUTO; break;
     case AC_MODE_COOL: this->mode = climate::CLIMATE_MODE_COOL; break;
-    case AC_MODE_DRY:  this->mode = climate::CLIMATE_MODE_DRY; break;
-    case AC_MODE_FAN:  this->mode = climate::CLIMATE_MODE_FAN_ONLY; break;
+    case AC_MODE_DRY: this->mode = climate::CLIMATE_MODE_DRY; break;
+    case AC_MODE_FANONLY: this->mode = climate::CLIMATE_MODE_FAN_ONLY; break;
     case AC_MODE_HEAT: this->mode = climate::CLIMATE_MODE_HEAT; break;
-    default: break;
+    default: ESP_LOGW(TAG, "Unknown AC MODE&fan: %02X", data[MODE]);
   }
 
-  switch (mode_byte & FAN_MASK) {
-    case AC_FAN_AUTO:   this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
-    case AC_FAN_LOW:    this->fan_mode = climate::CLIMATE_FAN_LOW; break;
+  switch (data[MODE] & FAN_MASK) {
+    case AC_FAN_AUTO: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+    case AC_FAN_LOW: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
     case AC_FAN_MEDIUM: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
-    case AC_FAN_HIGH:   this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
-    default: break;
+    case AC_FAN_HIGH: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
+    default: ESP_LOGW(TAG, "Unknown AC fan: %02X", data[MODE]);
   }
 
-  this->display_state_ = (data[DISPLAY_BYTE] & DISPLAY_BIT) != 0;
-  uint8_t turbo_val = data[TURBO_BYTE];
-  this->turbo_state_ = (turbo_val == 7 || turbo_val == 15);
+  // ИСПРАВЛЕНО: Возвращаем оригинальную логику Turbo (Boost) через байт 10
+  switch (data[10]) {
+    case 7:  // COOL TURBO
+    case 15: // HEAT TURBO
+      this->preset = climate::CLIMATE_PRESET_BOOST;
+      this->turbo_state_ = true;
+      break;
+    default:
+      this->preset = climate::CLIMATE_PRESET_NONE;
+      this->turbo_state_ = false;
+      break;
+  }
 
   this->publish_state();
 }
 
 void GreeClimate::control(const climate::ClimateCall &call) {
-  uint8_t mode = data_write_[MODE] & MODE_MASK;
-  uint8_t fan  = data_write_[MODE] & FAN_MASK;
+  data_write_[FORCE_UPDATE] = 175;
+  data_write_[13] = 0x20; 
+
+  uint8_t new_mode = data_write_[MODE] & MODE_MASK;
+  uint8_t new_fan_speed = data_write_[MODE] & FAN_MASK;
 
   if (call.get_mode().has_value()) {
     switch (call.get_mode().value()) {
-      case climate::CLIMATE_MODE_OFF:  mode = AC_MODE_OFF; break;
-      case climate::CLIMATE_MODE_AUTO: mode = AC_MODE_AUTO; break;
-      case climate::CLIMATE_MODE_COOL: mode = AC_MODE_COOL; break;
-      case climate::CLIMATE_MODE_DRY:  mode = AC_MODE_DRY; break;
-      case climate::CLIMATE_MODE_FAN_ONLY: mode = AC_MODE_FAN; break;
-      case climate::CLIMATE_MODE_HEAT: mode = AC_MODE_HEAT; break;
-      default: break;
+      case climate::CLIMATE_MODE_OFF: new_mode = AC_MODE_OFF; break;
+      case climate::CLIMATE_MODE_AUTO: new_mode = AC_MODE_AUTO; break;
+      case climate::CLIMATE_MODE_COOL: new_mode = AC_MODE_COOL; break;
+      case climate::CLIMATE_MODE_DRY: 
+        new_mode = AC_MODE_DRY;
+        new_fan_speed = AC_FAN_LOW; // В режиме Dry только низкая скорость
+        break;
+      case climate::CLIMATE_MODE_FAN_ONLY: new_mode = AC_MODE_FANONLY; break;
+      case climate::CLIMATE_MODE_HEAT: new_mode = AC_MODE_HEAT; break;
+      default: ESP_LOGW(TAG, "Setting of unsupported MODE: %d", (int)call.get_mode().value()); break;
     }
   }
 
   if (call.get_fan_mode().has_value()) {
     switch (call.get_fan_mode().value()) {
-      case climate::CLIMATE_FAN_AUTO: fan = AC_FAN_AUTO; break;
-      case climate::CLIMATE_FAN_LOW: fan = AC_FAN_LOW; break;
-      case climate::CLIMATE_FAN_MEDIUM: fan = AC_FAN_MEDIUM; break;
-      case climate::CLIMATE_FAN_HIGH: fan = AC_FAN_HIGH; break;
+      case climate::CLIMATE_FAN_AUTO: new_fan_speed = AC_FAN_AUTO; break;
+      case climate::CLIMATE_FAN_LOW: new_fan_speed = AC_FAN_LOW; break;
+      case climate::CLIMATE_FAN_MEDIUM: new_fan_speed = AC_FAN_MEDIUM; break;
+      case climate::CLIMATE_FAN_HIGH: new_fan_speed = AC_FAN_HIGH; break;
+      default: ESP_LOGW(TAG, "Setting of unsupported FANSPEED: %d", (int)call.get_fan_mode().value()); break;
+    }
+  }
+
+  if (new_mode == AC_MODE_DRY && new_fan_speed != AC_FAN_LOW) {
+    new_fan_speed = AC_FAN_LOW;
+  }
+
+  // ИСПРАВЛЕНО: Возвращаем управление Turbo (Boost) через байт 10
+  if (call.get_preset().has_value()) {
+    switch (call.get_preset().value()) {
+      case climate::CLIMATE_PRESET_NONE:
+        if (new_mode == AC_MODE_COOL) data_write_[10] = 6;
+        else if (new_mode == AC_MODE_HEAT) data_write_[10] = 14;
+        this->turbo_state_ = false;
+        break;
+      case climate::CLIMATE_PRESET_BOOST:
+        if (new_mode == AC_MODE_COOL) data_write_[10] = 7;
+        else if (new_mode == AC_MODE_HEAT) data_write_[10] = 15;
+        this->turbo_state_ = true;
+        break;
       default: break;
     }
   }
 
-  data_write_[MODE] = mode | fan;
-
   if (call.get_target_temperature().has_value()) {
-    float t = call.get_target_temperature().value();
-    if (t >= MIN_TEMP && t <= MAX_TEMP)
-      data_write_[TEMPERATURE] = (t - MIN_TEMP) * 16;
+    if (call.get_target_temperature().value() >= MIN_VALID_TEMPERATURE && call.get_target_temperature().value() <= MAX_VALID_TEMPERATURE)
+      data_write_[TEMPERATURE] = (call.get_target_temperature().value() - MIN_VALID_TEMPERATURE) * 16;
   }
 
+  data_write_[MODE] = new_mode + new_fan_speed;
+
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
-  this->write_array(data_write_, sizeof(data_write_));
+  send_data_(data_write_, sizeof(data_write_));
+
+  data_write_[FORCE_UPDATE] = 0;
+}
+
+void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
+  this->write_array(message, size);
+  dump_message_("Sent message", message, size);
+}
+
+void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8_t size) {
+  ESP_LOGV(TAG, "%s:", title);
+  char str[250] = {0};
+  char *pstr = str;
+  if (size * 2 > sizeof(str)) ESP_LOGE(TAG, "too long byte data");
+  for (int i = 0; i < size; i++) {
+    pstr += sprintf(pstr, "%02X ", message[i]);
+  }
+  ESP_LOGV(TAG, "%s", str);
+}
+
+uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
+  uint8_t position = size - 1;
+  uint8_t sum = 0;
+  for (int i = 2; i < position; i++)
+    sum += message[i];
+  return sum % 256;
 }
 
 void GreeClimate::set_display(bool state) {
-  display_state_ = state;
+  this->display_state_ = state;
   if (state)
-    data_write_[DISPLAY_BYTE] |= DISPLAY_BIT;
+    data_write_[13] = data_write_[13] | 0x20;
   else
-    data_write_[DISPLAY_BYTE] &= ~DISPLAY_BIT;
+    data_write_[13] = data_write_[13] & (~0x20);
+
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
-  this->write_array(data_write_, sizeof(data_write_));
+  send_data_(data_write_, sizeof(data_write_));
 }
 
 void GreeClimate::set_turbo(bool state) {
-  turbo_state_ = state;
-  uint8_t mode = data_write_[MODE] & MODE_MASK;
-  if (mode == AC_MODE_HEAT)
-    data_write_[TURBO_BYTE] = state ? 15 : 14;
-  else
-    data_write_[TURBO_BYTE] = state ? 7 : 6;
+  this->turbo_state_ = state;
+  uint8_t mode_only = data_write_[MODE] & MODE_MASK;
+  if (mode_only == AC_MODE_COOL) {
+    data_write_[10] = state ? 7 : 6;
+  } else if (mode_only == AC_MODE_HEAT) {
+    data_write_[10] = state ? 15 : 14;
+  } else {
+    data_write_[10] = state ? 7 : 6;
+  }
   data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
-  this->write_array(data_write_, sizeof(data_write_));
-}
-
-void GreeClimate::update() {
-  data_write_[CRC_WRITE] = get_checksum_(data_write_, sizeof(data_write_));
-  this->write_array(data_write_, sizeof(data_write_));
-}
-
-uint8_t GreeClimate::get_checksum_(const uint8_t *msg, size_t size) {
-  uint8_t sum = 0;
-  for (size_t i = 2; i < size - 1; i++)
-    sum += msg[i];
-  return sum;   // <--- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: возвращаем сумму
+  send_data_(data_write_, sizeof(data_write_));
 }
 
 }  // namespace gree
