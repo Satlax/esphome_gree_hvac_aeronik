@@ -60,7 +60,9 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   void read_state_(const uint8_t *data, uint8_t size);
   void send_data_(const uint8_t *message, uint8_t size);
   void dump_message_(const char *title, const uint8_t *message, uint8_t size);
-  uint8_t get_checksum_(const uint8_t *message, size_t size);
+  
+  // ИСПРАВЛЕНО: size_t заменен на uint8_t, чтобы совпадало с gree.cpp
+  uint8_t get_checksum_(const uint8_t *message, uint8_t size);
 
  private:
   static const uint8_t FORCE_UPDATE = 7;
@@ -91,5 +93,4 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   std::set<climate::ClimatePreset> supported_presets_{};
 };
 
-}  // namespace gree
-}  // namespace esphome
+}  // namespace g
