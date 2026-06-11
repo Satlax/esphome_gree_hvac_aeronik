@@ -76,10 +76,12 @@ climate::ClimateTraits GreeClimate::traits() {
       climate::CLIMATE_FAN_HIGH
   });
 
-  // Актуальный способ для новых версий ESPHome
   traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
 
-  traits.set_supported_presets(this->supported_presets_);
+  // ИСПРАВЛЕННЫЙ БЛОК ДОБАВЛЕНИЯ ПРЕСЕТОВ
+  for (auto preset : this->supported_presets_) {
+    traits.add_supported_preset(preset);
+  }
   traits.add_supported_preset(climate::CLIMATE_PRESET_NONE);
 
   return traits;
