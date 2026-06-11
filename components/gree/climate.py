@@ -13,16 +13,15 @@ GreeClimate = gree_ns.class_(
     "GreeClimate", climate.Climate, cg.PollingComponent, uart.UARTDevice
 )
 
-# Оставляем только рабочие пресеты (NONE и BOOST/Turbo)
 ALLOWED_CLIMATE_PRESETS = {
     "NONE": ClimatePreset.CLIMATE_PRESET_NONE,
     "BOOST": ClimatePreset.CLIMATE_PRESET_BOOST,
 }
 validate_presets = cv.enum(ALLOWED_CLIMATE_PRESETS, upper=True)
 
-# Исправлено: используем правильный CLIMATE_SCHEMA
+# Возвращаем _CLIMATE_SCHEMA (с подчеркиванием), как требует ESPHome 2026.5.3
 CONFIG_SCHEMA = (
-    climate.CLIMATE_SCHEMA.extend(
+    climate._CLIMATE_SCHEMA.extend(
         {
             cv.GenerateID(): cv.declare_id(GreeClimate),
             cv.Optional(CONF_SUPPORTED_PRESETS): cv.ensure_list(
