@@ -10,21 +10,21 @@ namespace esphome {
 namespace gree {
 
 // =========================
-// PROTOCOL CONSTANTS
+// PROTOCOL
 // =========================
 #define GREE_START_BYTE 0x7E
 #define GREE_RX_BUFFER_SIZE 52
 
 // =========================
-// MODES
+// MODES (confirmed Gree bitfield)
 // =========================
 enum ac_mode : uint8_t {
-  AC_MODE_OFF    = 0x10,
-  AC_MODE_AUTO   = 0x80,
-  AC_MODE_COOL   = 0x90,
-  AC_MODE_DRY    = 0xA0,
-  AC_MODE_FAN    = 0xB0,
-  AC_MODE_HEAT   = 0xC0
+  AC_MODE_OFF   = 0x10,
+  AC_MODE_AUTO  = 0x80,
+  AC_MODE_COOL  = 0x90,
+  AC_MODE_DRY   = 0xA0,
+  AC_MODE_FAN   = 0xB0,
+  AC_MODE_HEAT  = 0xC0
 };
 
 // =========================
@@ -38,18 +38,18 @@ enum ac_fan : uint8_t {
 };
 
 // =========================
-// SWING (confirmed bitfield)
+// SWING
 // =========================
 enum ac_swing : uint8_t {
-  AC_SWING_OFF     = 0x00,
-  AC_SWING_FULL    = 0x10,
-  AC_SWING_TOP     = 0x20,
-  AC_SWING_MIDDLE  = 0x40,
-  AC_SWING_BOTTOM  = 0x60
+  AC_SWING_OFF    = 0x00,
+  AC_SWING_FULL   = 0x10,
+  AC_SWING_TOP    = 0x20,
+  AC_SWING_MIDDLE = 0x40,
+  AC_SWING_BOTTOM = 0x60
 };
 
 // =========================
-// PACKET STRUCTS
+// PACKETS
 // =========================
 union gree_start_bytes_t {
   uint8_t u8x2[2];
@@ -66,7 +66,7 @@ struct gree_raw_packet_t {
 };
 
 // =========================
-// MAIN CLASS
+// CLASS
 // =========================
 class GreeClimate : public climate::Climate,
                     public uart::UARTDevice,
@@ -81,16 +81,18 @@ class GreeClimate : public climate::Climate,
     this->supported_presets_ = presets;
   }
 
-  // ===== ACTIONS =====
+  // =========================
+  // EXTERNAL SWITCHES
+  // =========================
   void set_display(bool state);
   void set_turbo(bool state);
 
-  // ===== STATE GETTERS =====
   bool get_display_state() const { return this->display_state_; }
   bool get_turbo_state() const { return this->turbo_state_; }
 
  protected:
   climate::ClimateTraits traits() override;
+
   void read_state_(const uint8_t *data, uint8_t size);
 
   void send_data_(const uint8_t *message, uint8_t size);
@@ -99,7 +101,7 @@ class GreeClimate : public climate::Climate,
 
  private:
   // =========================
-  // OFFSETS (confirmed)
+  // OFFSETS (REVERSED & STABLE)
   // =========================
   static const uint8_t FORCE_UPDATE = 7;
   static const uint8_t MODE = 8;
@@ -110,23 +112,31 @@ class GreeClimate : public climate::Climate,
   static const uint8_t SWING = 11;
 
   static const uint8_t DISPLAY_BYTE = 13;
-  static const uint8_t DISPLAY_BIT = 0x20;
+  static const uint8_t DISPLAY_BIT  = 0x20;
 
   static const uint8_t TURBO_BYTE = 10;
 
+  // ⚠ IMPORTANT FIX:
+  // keep consistent memory layout:
   static const uint8_t INDOOR_TEMPERATURE = 45;
   static const uint8_t CRC_WRITE = 46;
 
+  // =========================
+  // LIMITS
+  // =========================
   static const uint8_t MIN_VALID_TEMPERATURE = 16;
   static const uint8_t MAX_VALID_TEMPERATURE = 30;
   static const uint8_t TEMPERATURE_STEP = 1;
 
   // =========================
-  // STATE
+  // STATE FLAGS
   // =========================
   bool display_state_{false};
   bool turbo_state_{false};
 
+  // =========================
+  // TX BUFFER
+  // =========================
   uint8_t data_write_[47] = {
     0x7E,0x7E,0x2C,0x01,0x00,0x00,0x00,0x00,0x00,0x00,
     0x02,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
@@ -135,9 +145,15 @@ class GreeClimate : public climate::Climate,
     0x00,0x00,0x00,0x00,0x00,0x00,0x00
   };
 
+  // =========================
+  // RX BUFFER
+  // =========================
   uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
   bool receiving_packet_{false};
 
+  // =========================
+  // FEATURES
+  // =========================
   std::set<climate::ClimatePreset> supported_presets_{};
 };
 
