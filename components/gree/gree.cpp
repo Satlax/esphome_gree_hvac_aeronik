@@ -40,8 +40,15 @@ void GreeClimate::loop() {
   if (receiving_packet_ && this->available() >= raw_packet->header.data_length) {
     this->read_array(raw_packet->data, raw_packet->header.data_length);
 
-    dump_message_("Read array", this->data_read_, raw_packet->header.data_length + sizeof(gree_header_t));
-    read_state_(this->data_read_, raw_packet->header.data_length + sizeof(gree_header_t));
+    uint8_t total_size = raw_packet->header.data_length + sizeof(gree_header_t);
+    
+    // ЗАЩИТА: Не обрабатываем и не дампим некорректные размеры
+    if (total_size > 0 && total_size <= GREE_RX_BUFFER_SIZE) {
+      dump_message_("Read array", this->data_read_, total_size);
+      read_state_(this->data_read_, total_size);
+    } else {
+      ESP_LOGW(TAG, "Invalid total packet size: %d", total_size);
+    }
 
     receiving_packet_ = false;
     memset(this->data_read_, 0, GREE_RX_BUFFER_SIZE);
@@ -87,6 +94,12 @@ climate::ClimateTraits GreeClimate::traits() {
 }
 
 void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
+  // ЗАЩИТА: Если размер меньше минимально возможного, игнорируем
+  if (size < 3) {
+    ESP_LOGW(TAG, "Packet too small for processing: %d", size);
+    return;
+  }
+
   uint8_t data_crc = data[size-1];
   uint8_t get_crc = get_checksum_(data, size);
 
@@ -137,7 +150,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     this->turbo_state_ = false;
   }
 
-  // ИСПРАВЛЕНО: Определение состояния Display (байт 10, бит 0x02)
+  // Определение состояния Display (байт 10, бит 0x02)
   this->display_state_ = (data[10] & 0x02) != 0;
 
   this->publish_state();
@@ -197,33 +210,44 @@ void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
 }
 
 void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8_t size) {
+  // ЗАЩИТА: Предотвращаем переполнение буфера str[250] при поврежденных данных
+  if (size == 0 || size > GREE_RX_BUFFER_SIZE) {
+    ESP_LOGW(TAG, "Invalid size for dump: %d", size);
+    return;
+  }
+
   ESP_LOGV(TAG, "%s:", title);
   char str[250] = {0};
   char *pstr = str;
-  if (size * 2 > sizeof(str)) ESP_LOGE(TAG, "too long byte data");
-  for (int i = 0; i < size; i++) {
+  
+  for (uint8_t i = 0; i < size; i++) {
     pstr += sprintf(pstr, "%02X ", message[i]);
   }
   ESP_LOGV(TAG, "%s", str);
 }
 
-uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
+uint8_t GreeClimate::get_checksum_(const uint8_t *message, uint8_t size) {
+  // ЗАЩИТА: Предотвращаем underflow (size - 1), если size < 3
+  if (size < 3) {
+    return 0;
+  }
+  
   uint8_t position = size - 1;
   uint8_t sum = 0;
-  for (int i = 2; i < position; i++)
+  for (uint8_t i = 2; i < position; i++) {
     sum += message[i];
+  }
   return sum % 256;
 }
 
-// ИСПРАВЛЕНО: Управление дисплеем через Байт 10, Бит 0x02
 void GreeClimate::set_display(bool state) {
   this->display_state_ = state;
   data_write_[7] = 175; // FORCE_UPDATE
   
   if (state)
-    data_write_[10] = data_write_[10] | 0x02;  // Включаем подсветку
+    data_write_[10] = data_write_[10] | 0x02;
   else
-    data_write_[10] = data_write_[10] & (~0x02); // Выключаем подсветку
+    data_write_[10] = data_write_[10] & (~0x02);
 
   data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
@@ -231,18 +255,16 @@ void GreeClimate::set_display(bool state) {
   data_write_[7] = 0;
 }
 
-// ИСПРАВЛЕНО: Управление турбо с сохранением состояния дисплея
 void GreeClimate::set_turbo(bool state) {
   this->turbo_state_ = state;
   data_write_[7] = 175; // FORCE_UPDATE
   
   uint8_t mode_only = data_write_[8] & 0b11110000;
   uint8_t base_val = 6;
-  if (mode_only == 0xC0) base_val = 14; // Для режима обогрева
+  if (mode_only == 0xC0) base_val = 14; 
   
-  uint8_t target_val = state ? (base_val + 1) : base_val; // 7 или 15 для вкл, 6 или 14 для выкл
+  uint8_t target_val = state ? (base_val + 1) : base_val;
 
-  // Сохраняем бит дисплея (0x02), если он был включен, чтобы не погасить экран при включении турбо
   bool display_was_on = (data_write_[10] & 0x02) != 0;
   
   data_write_[10] = target_val;
