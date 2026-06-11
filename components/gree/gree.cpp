@@ -76,16 +76,13 @@ climate::ClimateTraits GreeClimate::traits() {
       climate::CLIMATE_FAN_HIGH
   });
 
-  // НОВЫЙ СПОСОБ: вместо set_supports_current_temperature используем add_feature_flags
-  traits.add_feature_flags(
-    climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE
-  );
-  // Двухточечная целевая температура не поддерживается, поэтому флаг не добавляем.
+  traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
 
-  // supported presets passed from YAML (if any)
-  traits.set_supported_presets(this->supported_presets_);
-
-  // ensure at least NONE is available
+  // Добавляем presets из supported_presets_ (std::set)
+  for (auto preset : this->supported_presets_) {
+    traits.add_supported_preset(preset);
+  }
+  // Убедимся, что preset NONE всегда есть
   traits.add_supported_preset(climate::CLIMATE_PRESET_NONE);
 
   return traits;
