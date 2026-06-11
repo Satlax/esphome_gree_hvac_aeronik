@@ -19,7 +19,7 @@ void GreeClimate::loop() {
 
   while (!receiving_packet_ && this->available() >= sizeof(gree_header_t)) {
     if (this->peek() != GREE_START_BYTE) {
-      this->read(); // throw away
+      this->read();
       continue;
     }
 
@@ -76,8 +76,11 @@ climate::ClimateTraits GreeClimate::traits() {
       climate::CLIMATE_FAN_HIGH
   });
 
-  traits.set_supports_current_temperature(true);
-  traits.set_supports_two_point_target_temperature(false);
+  // НОВЫЙ СПОСОБ: вместо set_supports_current_temperature используем add_feature_flags
+  traits.add_feature_flags(
+    climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE
+  );
+  // Двухточечная целевая температура не поддерживается, поэтому флаг не добавляем.
 
   // supported presets passed from YAML (if any)
   traits.set_supported_presets(this->supported_presets_);
@@ -159,16 +162,16 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
       this->preset = climate::CLIMATE_PRESET_NONE;
       break;
     case AC_SWING_FULL:
-      this->preset = climate::CLIMATE_PRESET_BOOST;  // full sweep -> BOOST
+      this->preset = climate::CLIMATE_PRESET_BOOST;
       break;
     case AC_SWING_TOP:
-      this->preset = climate::CLIMATE_PRESET_ECO;    // top -> ECO (chosen mapping)
+      this->preset = climate::CLIMATE_PRESET_ECO;
       break;
     case AC_SWING_MIDDLE:
-      this->preset = climate::CLIMATE_PRESET_AWAY;   // middle -> AWAY (chosen mapping)
+      this->preset = climate::CLIMATE_PRESET_AWAY;
       break;
     case AC_SWING_BOTTOM:
-      this->preset = climate::CLIMATE_PRESET_SLEEP;  // bottom -> SLEEP
+      this->preset = climate::CLIMATE_PRESET_SLEEP;
       break;
     default:
       this->preset = climate::CLIMATE_PRESET_NONE;
@@ -264,7 +267,6 @@ void GreeClimate::control(const climate::ClimateCall &call) {
         data_write_[SWING] = AC_SWING_BOTTOM;
         break;
       default:
-        // any other -> switch off
         data_write_[SWING] = AC_SWING_OFF;
         break;
     }
@@ -274,8 +276,6 @@ void GreeClimate::control(const climate::ClimateCall &call) {
     if (call.get_target_temperature().value() >= MIN_VALID_TEMPERATURE && call.get_target_temperature().value() <= MAX_VALID_TEMPERATURE)
       data_write_[TEMPERATURE] = (call.get_target_temperature().value() - MIN_VALID_TEMPERATURE) * 16;
   }
-
-  // swing handled above through preset mapping (SWING byte)
 
   data_write_[MODE] = new_mode + new_fan_speed;
 
