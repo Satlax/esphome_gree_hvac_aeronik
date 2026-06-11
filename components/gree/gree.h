@@ -114,6 +114,7 @@ class GreeClimate : public climate::Climate,
 
   static const uint8_t TURBO_BYTE = 10;
 
+  static const uint8_t INDOOR_TEMPERATURE = 45;
   static const uint8_t CRC_WRITE = 46;
 
   static const uint8_t MIN_VALID_TEMPERATURE = 16;
