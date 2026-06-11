@@ -10,7 +10,7 @@ namespace esphome {
 namespace gree {
 
 #define GREE_START_BYTE 0x7E
-#define GREE_RX_BUFFER_SIZE 52
+#define GREE_RX_BUFFER_SIZE 64
 
 enum ac_mode : uint8_t {
   AC_MODE_OFF = 0x10,
@@ -58,7 +58,6 @@ class GreeClimate : public climate::Climate,
 
   void set_display(bool state);
   void set_turbo(bool state);
-
   bool get_display_state() const { return display_state_; }
   bool get_turbo_state() const { return turbo_state_; }
 
@@ -67,7 +66,6 @@ class GreeClimate : public climate::Climate,
   uint8_t get_checksum_(const uint8_t *message, size_t size);
 
  private:
-  static const uint8_t FORCE_UPDATE = 7;
   static const uint8_t MODE = 8;
   static const uint8_t MODE_MASK = 0b11110000;
   static const uint8_t FAN_MASK = 0b00001111;
