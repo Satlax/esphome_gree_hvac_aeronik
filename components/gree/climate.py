@@ -22,9 +22,9 @@ ALLOWED_CLIMATE_PRESETS = {
 }
 validate_presets = cv.enum(ALLOWED_CLIMATE_PRESETS, upper=True)
 
-# КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: CLIMATE_SCHEMA -> climate_schema
+# Используем CLIMATE_DEVICE_SCHEMA вместо climate_schema()
 CONFIG_SCHEMA = cv.All(
-    climate.climate_schema.extend(
+    climate.CLIMATE_DEVICE_SCHEMA.extend(
         {
             cv.GenerateID(): cv.declare_id(GreeClimate),
             cv.Optional(CONF_SUPPORTED_PRESETS): cv.ensure_list(validate_presets),
@@ -33,7 +33,6 @@ CONFIG_SCHEMA = cv.All(
     .extend(cv.polling_component_schema("10s"))
     .extend(uart.UART_DEVICE_SCHEMA),
 )
-
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
