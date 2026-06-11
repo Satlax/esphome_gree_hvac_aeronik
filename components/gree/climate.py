@@ -10,24 +10,19 @@ GreeClimate = gree_ns.class_(
     "GreeClimate", climate.Climate, cg.PollingComponent, uart.UARTDevice
 )
 
-CONFIG_SCHEMA = cv.All(
-    climate.CLIMATE_DEVICE_SCHEMA.extend(
-        {
-            cv.GenerateID(): cv.declare_id(GreeClimate),
-            cv.Optional(CONF_SUPPORTED_PRESETS): cv.ensure_list(
-                cv.enum({
-                    "NONE": climate.CLIMATE_PRESET_NONE,
-                    "BOOST": climate.CLIMATE_PRESET_BOOST,
-                    "SLEEP": climate.CLIMATE_PRESET_SLEEP,
-                    "ECO": climate.CLIMATE_PRESET_ECO,
-                    "AWAY": climate.CLIMATE_PRESET_AWAY,
-                }, upper=True)
-            ),
-        }
-    )
-    .extend(cv.polling_component_schema("10s"))
-    .extend(uart.UART_DEVICE_SCHEMA),
-)
+# Это основное исправление: используем динамическую функцию `climate_schema`
+CONFIG_SCHEMA = climate.climate_schema(GreeClimate).extend(
+    {
+        cv.GenerateID(): cv.declare_id(GreeClimate),
+        cv.Optional(CONF_SUPPORTED_PRESETS): cv.ensure_list(cv.enum({
+            "NONE": climate.CLIMATE_PRESET_NONE,
+            "BOOST": climate.CLIMATE_PRESET_BOOST,
+            "SLEEP": climate.CLIMATE_PRESET_SLEEP,
+            "ECO": climate.CLIMATE_PRESET_ECO,
+            "AWAY": climate.CLIMATE_PRESET_AWAY,
+        }, upper=True)),
+    }
+).extend(cv.polling_component_schema("10s")).extend(uart.UART_DEVICE_SCHEMA)
 
 
 async def to_code(config):
