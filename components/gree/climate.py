@@ -5,7 +5,7 @@ from esphome.components import climate, uart
 from esphome.const import CONF_ID, CONF_SUPPORTED_PRESETS
 from esphome.components.climate import ClimatePreset
 
-CODEOWNERS = ["@bekmansurov"]
+CODEOWNERS = ["@Satlax"]
 DEPENDENCIES = ["climate", "uart"]
 
 gree_ns = cg.esphome_ns.namespace("gree")
