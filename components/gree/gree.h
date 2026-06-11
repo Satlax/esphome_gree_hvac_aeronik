@@ -93,4 +93,5 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   std::set<climate::ClimatePreset> supported_presets_{};
 };
 
-}  // namespace g
+}  // namespace gree
+}  // namespace esphome
