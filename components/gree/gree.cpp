@@ -103,14 +103,13 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   this->target_temperature = data[9] / 16 + MIN_VALID_TEMPERATURE;
   this->current_temperature = data[46] - 40;
 
-  // Синхронизируем важные байты, чтобы не сбрасывать их при отправке команд
-  data_write_[8] = data[8];  // MODE
-  data_write_[9] = data[9];  // TEMPERATURE
-  data_write_[10] = data[10]; // TURBO
-  data_write_[12] = data[12]; // SWING (просто сохраняем, не мапим на пресеты)
-  data_write_[13] = data[13]; // DISPLAY
+  // Синхронизируем важные байты
+  data_write_[8] = data[8];   // MODE
+  data_write_[9] = data[9];   // TEMPERATURE
+  data_write_[10] = data[10]; // TURBO & DISPLAY
+  data_write_[12] = data[12]; // SWING
+  data_write_[13] = data[13]; // Доп. настройки
 
-  // Исправлено: добавлен case 0x00 для корректной обработки выключенного состояния
   switch (data[8] & 0b11110000) {
     case 0x10: 
     case 0x00: 
@@ -131,15 +130,15 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     default: ESP_LOGW(TAG, "Unknown AC fan: %02X", data[8]);
   }
 
-  // Определение состояния Turbo (байт 10)
+  // Определение состояния Turbo (байт 10, значения 7 или 15)
   if (data[10] == 7 || data[10] == 15) {
     this->turbo_state_ = true;
   } else {
     this->turbo_state_ = false;
   }
 
-  // Определение состояния Display (байт 13, бит 0x20)
-  this->display_state_ = (data[13] & 0x20) != 0;
+  // ИСПРАВЛЕНО: Определение состояния Display (байт 10, бит 0x02)
+  this->display_state_ = (data[10] & 0x02) != 0;
 
   this->publish_state();
 }
@@ -157,7 +156,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
       case climate::CLIMATE_MODE_COOL: new_mode = 0x90; break;
       case climate::CLIMATE_MODE_DRY: 
         new_mode = 0xA0;
-        new_fan_speed = 0x01; // В режиме Dry только низкая скорость
+        new_fan_speed = 0x01;
         break;
       case climate::CLIMATE_MODE_FAN_ONLY: new_mode = 0xB0; break;
       case climate::CLIMATE_MODE_HEAT: new_mode = 0xC0; break;
@@ -189,7 +188,7 @@ void GreeClimate::control(const climate::ClimateCall &call) {
   data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
 
-  data_write_[7] = 0; // Сброс FORCE_UPDATE
+  data_write_[7] = 0;
 }
 
 void GreeClimate::send_data_(const uint8_t *message, uint8_t size) {
@@ -216,14 +215,15 @@ uint8_t GreeClimate::get_checksum_(const uint8_t *message, size_t size) {
   return sum % 256;
 }
 
+// ИСПРАВЛЕНО: Управление дисплеем через Байт 10, Бит 0x02
 void GreeClimate::set_display(bool state) {
   this->display_state_ = state;
   data_write_[7] = 175; // FORCE_UPDATE
   
   if (state)
-    data_write_[13] = data_write_[13] | 0x20;
+    data_write_[10] = data_write_[10] | 0x02;  // Включаем подсветку
   else
-    data_write_[13] = data_write_[13] & (~0x20);
+    data_write_[10] = data_write_[10] & (~0x02); // Выключаем подсветку
 
   data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
@@ -231,19 +231,25 @@ void GreeClimate::set_display(bool state) {
   data_write_[7] = 0;
 }
 
+// ИСПРАВЛЕНО: Управление турбо с сохранением состояния дисплея
 void GreeClimate::set_turbo(bool state) {
   this->turbo_state_ = state;
   data_write_[7] = 175; // FORCE_UPDATE
   
   uint8_t mode_only = data_write_[8] & 0b11110000;
-  if (mode_only == 0x90) { // COOL
-    data_write_[10] = state ? 7 : 6;
-  } else if (mode_only == 0xC0) { // HEAT
-    data_write_[10] = state ? 15 : 14;
-  } else {
-    data_write_[10] = state ? 7 : 6;
-  }
+  uint8_t base_val = 6;
+  if (mode_only == 0xC0) base_val = 14; // Для режима обогрева
   
+  uint8_t target_val = state ? (base_val + 1) : base_val; // 7 или 15 для вкл, 6 или 14 для выкл
+
+  // Сохраняем бит дисплея (0x02), если он был включен, чтобы не погасить экран при включении турбо
+  bool display_was_on = (data_write_[10] & 0x02) != 0;
+  
+  data_write_[10] = target_val;
+  if (display_was_on) {
+    data_write_[10] |= 0x02;
+  }
+
   data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
   send_data_(data_write_, sizeof(data_write_));
   
