@@ -51,17 +51,17 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   void set_display(bool state);
   void set_turbo(bool state);
+  void set_swing_mode(uint8_t mode); // <-- НОВОЕ
   
   bool get_display_state() const { return this->display_state_; }
   bool get_turbo_state() const { return this->turbo_state_; }
+  uint8_t get_swing_mode() const { return this->swing_mode_; } // <-- НОВОЕ
 
  protected:
   climate::ClimateTraits traits() override;
   void read_state_(const uint8_t *data, uint8_t size);
   void send_data_(const uint8_t *message, uint8_t size);
   void dump_message_(const char *title, const uint8_t *message, uint8_t size);
-  
-  // ИСПРАВЛЕНО: size_t заменен на uint8_t, чтобы совпадало с gree.cpp
   uint8_t get_checksum_(const uint8_t *message, uint8_t size);
 
  private:
@@ -89,6 +89,7 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   bool receiving_packet_ = false;
   bool display_state_ = true;
   bool turbo_state_ = false;
+  uint8_t swing_mode_ = 0x00; // <-- НОВОЕ
 
   std::set<climate::ClimatePreset> supported_presets_{};
 };
