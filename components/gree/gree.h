@@ -1,5 +1,7 @@
 #pragma once
 
+#include <set>
+
 #include "esphome/core/component.h"
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/uart/uart.h"
@@ -26,7 +28,7 @@ enum ac_fan: uint8_t {
 
 enum ac_swing: uint8_t {
   AC_SWING_OFF = 0x00,
-  AC_SWING_FULL = 0x10,   // full sweep
+  AC_SWING_FULL = 0x10,
   AC_SWING_TOP = 0x20,
   AC_SWING_MIDDLE = 0x40,
   AC_SWING_BOTTOM = 0x60
@@ -46,7 +48,7 @@ struct gree_header_t {
 
 struct gree_raw_packet_t {
   gree_header_t header;
-  uint8_t data[1]; // first data byte
+  uint8_t data[1];
 };
 
 class GreeClimate : public climate::Climate, public uart::UARTDevice, public PollingComponent {
@@ -58,7 +60,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
 
   void set_supported_presets(const std::set<climate::ClimatePreset> &presets) { this->supported_presets_ = presets; }
 
-  // new public control helpers for switches
   void set_display(bool state);
   void set_turbo(bool state);
 
@@ -70,7 +71,6 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   uint8_t get_checksum_(const uint8_t *message, size_t size);
 
  private:
-  // indexes / layout constants
   static const uint8_t FORCE_UPDATE = 7;
   static const uint8_t MODE = 8;
   static const uint8_t MODE_MASK = 0b11110000;
