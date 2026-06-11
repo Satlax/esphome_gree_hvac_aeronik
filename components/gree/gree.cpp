@@ -17,11 +17,10 @@ void GreeClimate::dump_config() {
 void GreeClimate::loop() {
   gree_raw_packet_t *raw_packet = (gree_raw_packet_t *)this->data_read_;
 
-  // ИСПРАВЛЕНО: Добавлен yield() для предотвращения Soft WDT
   while (!receiving_packet_ && this->available() >= sizeof(gree_header_t)) {
     if (this->peek() != GREE_START_BYTE) {
       this->read();
-      yield(); // <-- ДОБАВЛЕНО: Даем процессору передышку
+      yield();
       continue;
     }
 
@@ -37,8 +36,7 @@ void GreeClimate::loop() {
         memset(this->data_read_, 0, GREE_RX_BUFFER_SIZE);
       }
     }
-    
-    yield(); // <-- ДОБАВЛЕНО: Еще одна передышка после обработки заголовка
+    yield();
   }
 
   if (receiving_packet_ && this->available() >= raw_packet->header.data_length) {
@@ -123,6 +121,9 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
   data_write_[10] = data[10];
   data_write_[12] = data[12];
   data_write_[13] = data[13];
+
+  // Синхронизируем состояние свинга
+  this->swing_mode_ = data[12];
 
   switch (data[8] & 0b11110000) {
     case 0x10: 
@@ -273,6 +274,18 @@ void GreeClimate::set_turbo(bool state) {
   send_data_(data_write_, sizeof(data_write_));
   
   data_write_[7] = 0;
+}
+
+// НОВАЯ ФУНКЦИЯ ДЛЯ УПРАВЛЕНИЯ СВИНГОМ
+void GreeClimate::set_swing_mode(uint8_t mode) {
+  data_write_[7] = 175; // FORCE_UPDATE
+  data_write_[12] = mode; // Устанавливаем режим свинга (0x10, 0x20, 0x40, 0x60)
+  
+  data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
+  send_data_(data_write_, sizeof(data_write_));
+  
+  data_write_[7] = 0;
+  this->swing_mode_ = mode;
 }
 
 }  // namespace gree
