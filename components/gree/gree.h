@@ -9,15 +9,9 @@
 namespace esphome {
 namespace gree {
 
-// =========================
-// PROTOCOL
-// =========================
 #define GREE_START_BYTE 0x7E
 #define GREE_RX_BUFFER_SIZE 52
 
-// =========================
-// MODES
-// =========================
 enum ac_mode : uint8_t {
   AC_MODE_OFF  = 0x10,
   AC_MODE_AUTO = 0x80,
@@ -27,9 +21,6 @@ enum ac_mode : uint8_t {
   AC_MODE_HEAT = 0xC0
 };
 
-// =========================
-// FAN
-// =========================
 enum ac_fan : uint8_t {
   AC_FAN_AUTO   = 0x00,
   AC_FAN_LOW    = 0x01,
@@ -37,9 +28,6 @@ enum ac_fan : uint8_t {
   AC_FAN_HIGH   = 0x03
 };
 
-// =========================
-// SWING
-// =========================
 enum ac_swing : uint8_t {
   AC_SWING_OFF    = 0x00,
   AC_SWING_FULL   = 0x10,
@@ -48,9 +36,6 @@ enum ac_swing : uint8_t {
   AC_SWING_BOTTOM = 0x60
 };
 
-// =========================
-// PACKET
-// =========================
 union gree_start_bytes_t {
   uint8_t u8x2[2];
 };
@@ -65,9 +50,6 @@ struct gree_raw_packet_t {
   uint8_t data[1];
 };
 
-// =========================
-// CLASS
-// =========================
 class GreeClimate : public climate::Climate,
                     public uart::UARTDevice,
                     public PollingComponent {
@@ -76,24 +58,23 @@ class GreeClimate : public climate::Climate,
   void update() override;
   void dump_config() override;
   void control(const climate::ClimateCall &call) override;
-
   climate::ClimateTraits traits() override;
 
   void set_supported_presets(const std::set<climate::ClimatePreset> &presets) {
-    this->supported_presets_ = presets;
+    supported_presets_ = presets;
   }
 
-  // switches from HA
   void set_display(bool state);
   void set_turbo(bool state);
 
+  bool get_display_state() const { return display_state_; }
+  bool get_turbo_state() const { return turbo_state_; }
+
  protected:
   void read_state_(const uint8_t *data, uint8_t size);
-  void send_data_(const uint8_t *message, uint8_t size);
   uint8_t get_checksum_(const uint8_t *message, size_t size);
 
  private:
-  // OFFSETS
   static const uint8_t FORCE_UPDATE = 7;
   static const uint8_t MODE = 8;
   static const uint8_t MODE_MASK = 0b11110000;
@@ -126,6 +107,7 @@ class GreeClimate : public climate::Climate,
 
   uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
   bool receiving_packet_{false};
+  uint32_t last_rx_time_{0};
 
   std::set<climate::ClimatePreset> supported_presets_{};
 };
