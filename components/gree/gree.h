@@ -5,12 +5,14 @@
 #include "esphome/core/component.h"
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/uart/uart.h"
-#include "esphome/core/log.h"
 
 namespace esphome {
 namespace gree {
 
-enum ac_mode: uint8_t {
+// =========================
+// ENUMS
+// =========================
+enum ac_mode : uint8_t {
   AC_MODE_OFF = 0x10,
   AC_MODE_AUTO = 0x80,
   AC_MODE_COOL = 0x90,
@@ -19,14 +21,14 @@ enum ac_mode: uint8_t {
   AC_MODE_HEAT = 0xC0
 };
 
-enum ac_fan: uint8_t {
+enum ac_fan : uint8_t {
   AC_FAN_AUTO = 0x00,
   AC_FAN_LOW = 0x01,
   AC_FAN_MEDIUM = 0x02,
   AC_FAN_HIGH = 0x03
 };
 
-enum ac_swing: uint8_t {
+enum ac_swing : uint8_t {
   AC_SWING_OFF = 0x00,
   AC_SWING_FULL = 0x10,
   AC_SWING_TOP = 0x20,
@@ -34,11 +36,14 @@ enum ac_swing: uint8_t {
   AC_SWING_BOTTOM = 0x60
 };
 
+// =========================
+// PROTOCOL
+// =========================
 #define GREE_START_BYTE 0x7E
 #define GREE_RX_BUFFER_SIZE 52
 
 union gree_start_bytes_t {
-    uint8_t u8x2[2];
+  uint8_t u8x2[2];
 };
 
 struct gree_header_t {
@@ -51,26 +56,47 @@ struct gree_raw_packet_t {
   uint8_t data[1];
 };
 
-class GreeClimate : public climate::Climate, public uart::UARTDevice, public PollingComponent {
+// =========================
+// MAIN CLASS
+// =========================
+class GreeClimate : public climate::Climate,
+                    public uart::UARTDevice,
+                    public PollingComponent {
  public:
   void loop() override;
   void update() override;
   void dump_config() override;
   void control(const climate::ClimateCall &call) override;
 
-  void set_supported_presets(const std::set<climate::ClimatePreset> &presets) { this->supported_presets_ = presets; }
+  void set_supported_presets(const std::set<climate::ClimatePreset> &presets) {
+    this->supported_presets_ = presets;
+  }
 
+  // =========================
+  // COMMAND API (ESPHome side)
+  // =========================
   void set_display(bool state);
   void set_turbo(bool state);
 
+  // =========================
+  // STATE ACCESSORS (IMPORTANT)
+  // =========================
+  bool get_display_state() const { return this->display_state_; }
+  bool get_turbo_state() const { return this->turbo_state_; }
+  bool get_swing_state() const { return this->swing_enabled_; }
+
  protected:
   climate::ClimateTraits traits() override;
+
   void read_state_(const uint8_t *data, uint8_t size);
   void send_data_(const uint8_t *message, uint8_t size);
   void dump_message_(const char *title, const uint8_t *message, uint8_t size);
   uint8_t get_checksum_(const uint8_t *message, size_t size);
 
  private:
+  // =========================
+  // FRAME OFFSETS
+  // =========================
   static const uint8_t FORCE_UPDATE = 7;
   static const uint8_t MODE = 8;
   static const uint8_t MODE_MASK = 0b11110000;
@@ -78,11 +104,17 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
   static const uint8_t SWING = 12;
   static const uint8_t CRC_WRITE = 46;
   static const uint8_t TEMPERATURE = 9;
-  static const uint8_t INDOOR_TEMPERATURE = 46;
 
   static const uint8_t MIN_VALID_TEMPERATURE = 16;
   static const uint8_t MAX_VALID_TEMPERATURE = 30;
   static const uint8_t TEMPERATURE_STEP = 1;
+
+  // =========================
+  // STATE STORAGE (CRITICAL FIX)
+  // =========================
+  bool display_state_{false};
+  bool turbo_state_{false};
+  bool swing_enabled_{false};
 
   uint8_t data_write_[47] = {
     0x7E,0x7E,0x2C,0x01,0x00,0x00,0x00,0x00,0x00,0x00,
@@ -91,9 +123,9 @@ class GreeClimate : public climate::Climate, public uart::UARTDevice, public Pol
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x00,0x00,0x00
   };
-  uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
 
-  bool receiving_packet_ = false;
+  uint8_t data_read_[GREE_RX_BUFFER_SIZE] = {0};
+  bool receiving_packet_{false};
 
   std::set<climate::ClimatePreset> supported_presets_{};
 };
