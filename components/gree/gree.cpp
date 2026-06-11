@@ -108,6 +108,8 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
 
   data_write_[MODE] = data[MODE];
   data_write_[TEMPERATURE] = data[TEMPERATURE];
+  data_write_[10] = data[10]; // Sync Turbo state
+  data_write_[13] = data[13]; // Sync Display state
 
   switch (data[MODE] & MODE_MASK) {
     case AC_MODE_OFF: this->mode = climate::CLIMATE_MODE_OFF; break;
