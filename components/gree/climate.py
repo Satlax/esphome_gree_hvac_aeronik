@@ -1,9 +1,11 @@
-import esphome.config_validation as cv
+import esphome.config_validation as cv 
 import esphome.codegen as cg
+
 from esphome.components import climate, uart
 from esphome.const import CONF_ID, CONF_SUPPORTED_PRESETS
 from esphome.components.climate import ClimatePreset
 
+CODEOWNERS = ["@Satlax"]
 DEPENDENCIES = ["climate", "uart"]
 
 gree_ns = cg.esphome_ns.namespace("gree")
@@ -11,24 +13,26 @@ GreeClimate = gree_ns.class_(
     "GreeClimate", climate.Climate, cg.PollingComponent, uart.UARTDevice
 )
 
-CONFIG_SCHEMA = climate.climate_schema(GreeClimate).extend(
-    {
-        cv.GenerateID(): cv.declare_id(GreeClimate),
-        cv.Optional(CONF_SUPPORTED_PRESETS): cv.ensure_list(
-            cv.enum(
-                {
-                    "NONE": ClimatePreset.CLIMATE_PRESET_NONE,
-                    "BOOST": ClimatePreset.CLIMATE_PRESET_BOOST,
-                    "SLEEP": ClimatePreset.CLIMATE_PRESET_SLEEP,
-                    "ECO": ClimatePreset.CLIMATE_PRESET_ECO,
-                    "AWAY": ClimatePreset.CLIMATE_PRESET_AWAY,
-                },
-                upper=True,
-            )
-        ),
-    }
-).extend(cv.polling_component_schema("10s")).extend(uart.UART_DEVICE_SCHEMA)
+# Оставляем только рабочие пресеты (NONE и BOOST/Turbo)
+ALLOWED_CLIMATE_PRESETS = {
+    "NONE": ClimatePreset.CLIMATE_PRESET_NONE,
+    "BOOST": ClimatePreset.CLIMATE_PRESET_BOOST,
+}
+validate_presets = cv.enum(ALLOWED_CLIMATE_PRESETS, upper=True)
 
+# Исправлено: используем правильный CLIMATE_SCHEMA
+CONFIG_SCHEMA = (
+    climate.CLIMATE_SCHEMA.extend(
+        {
+            cv.GenerateID(): cv.declare_id(GreeClimate),
+            cv.Optional(CONF_SUPPORTED_PRESETS): cv.ensure_list(
+                validate_presets
+            ),
+        }
+    )
+    .extend(cv.polling_component_schema("10s"))
+    .extend(uart.UART_DEVICE_SCHEMA)
+)
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
