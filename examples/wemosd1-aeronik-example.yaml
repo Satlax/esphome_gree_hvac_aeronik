@@ -1,0 +1,115 @@
+esphome:
+  name: aeronik-bedroom
+  friendly_name: "Aeronik Bedroom"
+
+esp8266:
+  board: d1_mini
+
+api:
+  encryption:
+    key: "yourkey"
+
+ota:
+  - platform: esphome
+    password: "yourpass"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+  level: INFO
+
+uart:
+  id: ac_uart
+  tx_pin: D5
+  rx_pin: D6
+  baud_rate: 4800
+  parity: EVEN
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/Satlax/esphome_gree_hvac_aeronik
+      ref: v1.1.0
+    components: [gree]
+    refresh: 0s
+
+climate:
+  - platform: gree
+    name: "Aeronik AC"
+    id: aeronik_climate
+    uart_id: ac_uart
+    update_interval: 10s
+    visual:
+      min_temperature: 16
+      max_temperature: 30
+      temperature_step: 1.0
+
+switch:
+  - platform: template
+    name: "AC Display"
+    lambda: |-
+      return id(aeronik_climate).get_display_state();
+    turn_on_action:
+      - lambda: id(aeronik_climate).set_display(true);
+    turn_off_action:
+      - lambda: id(aeronik_climate).set_display(false);
+
+  - platform: template
+    name: "AC Turbo"
+    lambda: |-
+      return id(aeronik_climate).get_turbo_state();
+    turn_on_action:
+      - lambda: id(aeronik_climate).set_turbo(true);
+    turn_off_action:
+      - lambda: id(aeronik_climate).set_turbo(false);
+
+select:
+  # --- ЖАЛЮЗИ ---
+  - platform: template
+    name: "AC Swing Mode"
+    id: ac_swing_select
+    options:
+      - "Верх"
+      - "Центр"
+      - "Низ"
+      - "Качение"
+    lambda: |-
+      if (id(aeronik_climate).get_swing_mode() == 0x20) return std::string("Верх");
+      if (id(aeronik_climate).get_swing_mode() == 0x40) return std::string("Центр");
+      if (id(aeronik_climate).get_swing_mode() == 0x60) return std::string("Низ");
+      if (id(aeronik_climate).get_swing_mode() == 0x10) return std::string("Качение");
+      return std::string("Верх");
+    set_action:
+      then:
+        - lambda: |-
+            if (x == "Верх") id(aeronik_climate).set_swing_mode(0x20);
+            else if (x == "Центр") id(aeronik_climate).set_swing_mode(0x40);
+            else if (x == "Низ") id(aeronik_climate).set_swing_mode(0x60);
+            else if (x == "Качение") id(aeronik_climate).set_swing_mode(0x10);
+            id(ac_swing_select).publish_state(x);
+
+  # --- ВЕНТИЛЯТОР ---
+  - platform: template
+    name: "AC Fan Mode"
+    id: ac_fan_select
+    options:
+      - "Авто"
+      - "Низкий"
+      - "Средний"
+      - "Высокий"
+    lambda: |-
+      if (id(aeronik_climate).fan_mode == climate::CLIMATE_FAN_AUTO) return std::string("Авто");
+      if (id(aeronik_climate).fan_mode == climate::CLIMATE_FAN_LOW) return std::string("Низкий");
+      if (id(aeronik_climate).fan_mode == climate::CLIMATE_FAN_MEDIUM) return std::string("Средний");
+      if (id(aeronik_climate).fan_mode == climate::CLIMATE_FAN_HIGH) return std::string("Высокий");
+      return std::string("Авто");
+    set_action:
+      then:
+        - lambda: |-
+            if (x == "Авто") id(aeronik_climate).make_call().set_fan_mode(climate::CLIMATE_FAN_AUTO).perform();
+            else if (x == "Низкий") id(aeronik_climate).make_call().set_fan_mode(climate::CLIMATE_FAN_LOW).perform();
+            else if (x == "Средний") id(aeronik_climate).make_call().set_fan_mode(climate::CLIMATE_FAN_MEDIUM).perform();
+            else if (x == "Высокий") id(aeronik_climate).make_call().set_fan_mode(climate::CLIMATE_FAN_HIGH).perform();
+            id(ac_fan_select).publish_state(x);
