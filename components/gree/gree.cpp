@@ -215,14 +215,14 @@ void GreeClimate::dump_message_(const char *title, const uint8_t *message, uint8
     return;
   }
 
-  ESP_LOGV(TAG, "%s:", title);
+  ESP_LOGD(TAG, "%s:", title);
   char str[250] = {0};
   char *pstr = str;
   
   for (uint8_t i = 0; i < size; i++) {
     pstr += sprintf(pstr, "%02X ", message[i]);
   }
-  ESP_LOGV(TAG, "%s", str);
+  ESP_LOGD(TAG, "%s", str);
 }
 
 uint8_t GreeClimate::get_checksum_(const uint8_t *message, uint8_t size) {
