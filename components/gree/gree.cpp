@@ -145,12 +145,7 @@ void GreeClimate::read_state_(const uint8_t *data, uint8_t size) {
     default: ESP_LOGW(TAG, "Unknown AC fan: %02X", data[8]);
   }
 
-  if (data[10] == 7 || data[10] == 15) {
-    this->turbo_state_ = true;
-  } else {
-    this->turbo_state_ = false;
-  }
-
+  this->turbo_state_ = (data[10] & 0x01) != 0;
   this->display_state_ = (data[10] & 0x02) != 0;
 
   this->publish_state();
@@ -255,19 +250,14 @@ void GreeClimate::set_display(bool state) {
 
 void GreeClimate::set_turbo(bool state) {
   this->turbo_state_ = state;
-  data_write_[7] = 175;
+  data_write_[7] = 175; // FORCE_UPDATE
   
-  uint8_t mode_only = data_write_[8] & 0b11110000;
-  uint8_t base_val = 6;
-  if (mode_only == 0xC0) base_val = 14; 
-  
-  uint8_t target_val = state ? (base_val + 1) : base_val;
-
-  bool display_was_on = (data_write_[10] & 0x02) != 0;
-  
-  data_write_[10] = target_val;
-  if (display_was_on) {
-    data_write_[10] |= 0x02;
+  if (state) {
+    // ВКЛЮЧИТЬ ТУРБО: устанавливаем бит 0x01 в 1, остальные биты (включая дисплей 0x02) не трогаем!
+    data_write_[10] |= 0x01;
+  } else {
+    // ВЫКЛЮЧИТЬ ТУРБО: обнуляем бит 0x01, остальные биты оставляем как есть!
+    data_write_[10] &= ~0x01;
   }
 
   data_write_[46] = get_checksum_(data_write_, sizeof(data_write_));
